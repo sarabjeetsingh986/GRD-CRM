@@ -1,0 +1,2283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRD Admissions CRM v8 · 2026-27</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAiWHkFTKDHMRWQ4-PmP4MqXRs9g35Bkro",
+  authDomain: "grd-crm.firebaseapp.com",
+  databaseURL: "https://grd-crm-default-rtdb.firebaseio.com",
+  projectId: "grd-crm",
+  storageBucket: "grd-crm.firebasestorage.app",
+  messagingSenderId: "1061505664921",
+  appId: "1:1061505664921:web:ab4128c50b0199ce1df508"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// Make Firebase functions available globally
+window._fbSet = (path, data) => set(ref(db, path), data);
+window._fbRemove = (path) => remove(ref(db, path));
+window._fbListen = (path, cb) => onValue(ref(db, path), snap => cb(snap.val()));
+window._fbReady = true;
+
+// Start listening to students and columns from Firebase
+window._fbListen('students', (data) => {
+  document.getElementById('syncStatus').textContent='✓ Live';
+  document.getElementById('syncStatus').style.color='var(--green)';
+  if(data){
+    students = Object.values(data);
+    students.sort((a,b)=>a.sno-b.sno);
+  } else {
+    // First time - push current students to Firebase
+    const obj = {};
+    students.forEach(s => obj['s'+s.id] = s);
+    window._fbSet('students', obj);
+  }
+  filtered = [...students];
+  renderDash();
+  renderHeader();
+  applyFilters();
+});
+
+window._fbListen('columns', (data) => {
+  if(data){
+    columns = data;
+  }
+});
+
+</script>
+<style>
+:root{
+  --bg:#080c18;--bg2:#0c1022;--surface:#0f1528;--card:#131a30;--card2:#182038;--card3:#1e2845;
+  --border:#1f2d4d;--border2:#263660;--border3:#2f4070;
+  --gold:#c9a84c;--gold2:#e8c96a;--gold-g:rgba(201,168,76,.12);--gold-gb:rgba(201,168,76,.06);
+  --blue:#4f8ef7;--blue2:#6ba3ff;--blue-g:rgba(79,142,247,.12);--blue-gb:rgba(79,142,247,.06);
+  --green:#34d17e;--green-g:rgba(52,209,126,.12);
+  --red:#f25c5c;--red-g:rgba(242,92,92,.12);
+  --orange:#f5a623;--orange-g:rgba(245,166,35,.12);
+  --purple:#9d6df7;--purple-g:rgba(157,109,247,.12);
+  --cyan:#30d5e8;--cyan-g:rgba(48,213,232,.12);
+  --pink:#f472c0;--pink-g:rgba(244,114,192,.12);
+  --teal:#2dd4bf;--teal-g:rgba(45,212,191,.12);
+  --yellow:#fbbf24;--yellow-g:rgba(251,191,36,.12);
+  --text:#dde5f8;--text2:#b0bde0;--text-muted:#5a6e9e;--text-dim:#2e3f67;
+  --body:Arial,Helvetica,sans-serif;--mono:Arial,Helvetica,sans-serif;--head:Arial,Helvetica,sans-serif;
+  --r:8px;--r2:14px;--r3:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:13px;line-height:1.5;}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 20% 10%,rgba(79,142,247,.06) 0%,transparent 60%),radial-gradient(ellipse 40% 30% at 80% 80%,rgba(201,168,76,.04) 0%,transparent 60%);pointer-events:none;z-index:0;}
+
+/* ── HEADER ── */
+.hdr{position:sticky;top:0;z-index:500;height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:rgba(8,12,24,.92);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.4);}
+.hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--gold) 30%,var(--blue) 70%,transparent);opacity:.35;}
+.hbrand{display:flex;align-items:center;gap:14px;}
+.hlogo{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#1e2d55,#2a3f7a);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;letter-spacing:.5px;box-shadow:0 2px 8px rgba(0,0,0,.4);color:var(--gold2);}
+.htitle{font-weight:700;font-size:15px;color:var(--text);}
+.hsub{font-size:11px;color:var(--text-muted);margin-top:1px;}
+.hacts{display:flex;gap:8px;align-items:center;}
+.hdiv{width:1px;height:24px;background:var(--border2);margin:0 4px;}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--r);font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;cursor:pointer;border:none;transition:all .18s;white-space:nowrap;letter-spacing:.1px;}
+.btn-primary{background:linear-gradient(135deg,#2d5ad4,#4f8ef7);color:#fff;box-shadow:0 3px 12px rgba(79,142,247,.3);}
+.btn-primary:hover{box-shadow:0 5px 20px rgba(79,142,247,.45);transform:translateY(-1px);}
+.btn-gold{background:linear-gradient(135deg,#8a6318,#c9a84c);color:#fff;box-shadow:0 3px 12px rgba(201,168,76,.25);}
+.btn-gold:hover{box-shadow:0 5px 20px rgba(201,168,76,.4);transform:translateY(-1px);}
+.btn-ghost{background:transparent;color:var(--text-muted);border:1px solid var(--border2);}
+.btn-ghost:hover{border-color:var(--blue);color:var(--blue2);background:var(--blue-gb);}
+.btn-danger{background:linear-gradient(135deg,#b52a2a,#f25c5c);color:#fff;box-shadow:0 3px 10px rgba(242,92,92,.25);}
+.btn-danger:hover{box-shadow:0 4px 16px rgba(242,92,92,.4);transform:translateY(-1px);}
+.btn-sm{padding:6px 12px;font-size:11px;}
+.btn-xs{padding:4px 9px;font-size:11px;}
+/* legacy aliases */
+.btn-blue{background:linear-gradient(135deg,#2d5ad4,#4f8ef7);color:#fff;box-shadow:0 3px 12px rgba(79,142,247,.3);}
+.btn-blue:hover{box-shadow:0 5px 20px rgba(79,142,247,.45);transform:translateY(-1px);}
+.btn-green{background:linear-gradient(135deg,#1a8f52,#34d17e);color:#fff;}
+.btn-green:hover{transform:translateY(-1px);}
+.btn-red{background:linear-gradient(135deg,#b52a2a,#f25c5c);color:#fff;}
+.btn-red:hover{transform:translateY(-1px);}
+
+/* NAV BUTTONS */
+.nav-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid transparent;transition:all .18s;color:var(--text-muted);background:transparent;}
+.nav-btn:hover{color:var(--text);border-color:var(--border2);background:var(--card);}
+.nav-btn.active{color:var(--blue2);border-color:rgba(79,142,247,.35);background:var(--blue-gb);}
+.nav-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.7;}
+
+/* ── MAIN ── */
+.main{padding:22px 28px;position:relative;z-index:1;}
+
+/* ── STATS ROW ── */
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:14px 16px;position:relative;overflow:hidden;transition:all .22s;cursor:default;}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:var(--r2) var(--r2) 0 0;}
+.stat-card:hover{transform:translateY(-2px);border-color:var(--border2);}
+.sc-blue::before{background:linear-gradient(90deg,var(--blue),var(--blue2));}
+.sc-green::before{background:linear-gradient(90deg,#1a8f52,var(--green));}
+.sc-red::before{background:linear-gradient(90deg,#952020,var(--red));}
+.sc-cyan::before{background:linear-gradient(90deg,#1796a8,var(--cyan));}
+.sc-orange::before{background:linear-gradient(90deg,#a86a10,var(--orange));}
+.sc-purple::before{background:linear-gradient(90deg,#6340c4,var(--purple));}
+.sc-pink::before{background:linear-gradient(90deg,#b03892,var(--pink));}
+.sc-teal::before{background:linear-gradient(90deg,#1a9484,var(--teal));}
+.sc-yellow::before{background:linear-gradient(90deg,#a87c0f,var(--yellow));}
+.sc-gold::before{background:linear-gradient(90deg,var(--gold),var(--gold2));}
+.sc-label{font-size:13px;font-weight:700;color:var(--text);letter-spacing:.1px;margin-bottom:8px;line-height:1.3;}
+.sc-value{font-size:28px;font-weight:700;line-height:1;margin-bottom:6px;}
+.stat-card.sc-blue .sc-value{color:var(--blue2);}
+.stat-card.sc-green .sc-value{color:var(--green);}
+.stat-card.sc-red .sc-value{color:var(--red);}
+.stat-card.sc-cyan .sc-value{color:var(--cyan);}
+.stat-card.sc-orange .sc-value{color:var(--orange);}
+.stat-card.sc-purple .sc-value{color:var(--purple);}
+.stat-card.sc-pink .sc-value{color:var(--pink);}
+.stat-card.sc-teal .sc-value{color:var(--teal);}
+.stat-card.sc-yellow .sc-value{color:var(--yellow);}
+.stat-card.sc-gold .sc-value{color:var(--gold2);}
+.sc-meta{font-size:12px;font-weight:700;color:var(--text2);}
+
+/* ── TOOLBAR ── */
+.toolbar{display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap;}
+.sbox{flex:1;min-width:220px;position:relative;}
+.sbox input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:24px;padding:9px 16px 9px 38px;color:var(--text);font-family:Arial,Helvetica,sans-serif;font-size:12px;outline:none;transition:all .18s;}
+.sbox input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(79,142,247,.1);}
+.sbox input::placeholder{color:var(--text-dim);}
+.sbox-ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;pointer-events:none;}
+
+/* ── FILTER PILLS ── */
+.pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.pill{display:inline-flex;align-items:center;gap:5px;background:var(--blue-gb);border:1px solid rgba(79,142,247,.25);border-radius:20px;padding:4px 12px;font-size:11px;color:var(--blue2);font-weight:600;}
+.pill button{background:none;border:none;cursor:pointer;color:var(--blue2);font-size:13px;line-height:1;padding:0 0 0 2px;opacity:.7;transition:opacity .15s;}
+.pill button:hover{opacity:1;}
+
+/* ── TABLE WRAPPER ── */
+.tbl-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.55);}
+.tbl-hdr{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:flex-start;align-items:center;gap:10px;flex-wrap:wrap;background:linear-gradient(180deg,var(--card2),var(--card));}
+.tbl-title{font-weight:700;font-size:15px;color:var(--text);}
+.tbl-scroll{overflow-x:auto;max-height:calc(100vh - 300px);overflow-y:auto;}
+
+/* ── TABLE ── */
+table{width:100%;border-collapse:collapse;table-layout:auto;}
+thead{position:sticky;top:0;z-index:50;}
+thead tr{background:var(--card3);}
+th{padding:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border2);position:relative;white-space:nowrap;}
+th:last-child{border-right:none;min-width:80px;}
+.th-wrap{display:flex;flex-direction:column;}
+.th-top{display:flex;align-items:center;padding:13px 16px 11px;gap:5px;min-height:46px;}
+.th-lbl{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;flex:1;cursor:pointer;user-select:none;white-space:nowrap;transition:color .15s;}
+.th-lbl:hover{color:var(--blue2);}
+th.filtered .th-lbl{color:var(--gold2);}
+.th-lbl-input{font-size:10px;font-weight:700;background:var(--surface);border:1px solid var(--blue);border-radius:4px;padding:2px 6px;color:var(--text);outline:none;font-family:Arial,Helvetica,sans-serif;width:100%;}
+.sort-ic{font-size:9px;color:var(--text-dim);transition:color .1s;}
+.sort-ic.asc{color:var(--blue2);}.sort-ic.desc{color:var(--orange);}
+.flt-btn{background:none;border:none;cursor:pointer;padding:2px 5px;border-radius:4px;color:var(--text-muted);font-size:11px;line-height:1;transition:all .1s;flex-shrink:0;}
+.flt-btn:hover{background:var(--border2);color:var(--text);}
+.flt-btn.active{color:var(--gold2);}
+
+/* ── FILTER PANEL ── */
+.flt-panel{position:absolute;top:100%;left:0;min-width:210px;max-width:280px;background:var(--card3);border:1px solid var(--border2);border-radius:12px;box-shadow:0 14px 50px rgba(0,0,0,.7);z-index:300;display:none;padding:12px;}
+.flt-panel.open{display:block;}
+.flt-search{width:100%;background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:6px 9px;color:var(--text);font-family:Arial,Helvetica,sans-serif;font-size:12px;outline:none;margin-bottom:8px;}
+.flt-search:focus{border-color:var(--blue);}
+.flt-list{max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;}
+.flt-item{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;cursor:pointer;transition:background .1s;}
+.flt-item:hover{background:var(--border);}
+.flt-item input[type=checkbox]{accent-color:var(--blue);cursor:pointer;flex-shrink:0;}
+.flt-item label{font-size:12px;color:var(--text);cursor:pointer;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.flt-selall{display:flex;align-items:center;gap:8px;padding:5px 7px;border-bottom:1px solid var(--border);margin-bottom:4px;cursor:pointer;}
+.flt-selall input{accent-color:var(--blue);}
+.flt-selall label{font-size:11px;font-weight:700;color:var(--text-muted);cursor:pointer;}
+.flt-actions{display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+.flt-actions button{flex:1;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;border:none;font-family:Arial,Helvetica,sans-serif;}
+.flt-clear{background:var(--border2);color:var(--text-muted);}
+.flt-clear:hover{color:var(--text);}
+.flt-apply{background:var(--blue);color:#fff;}
+.flt-apply:hover{background:#3b7de8;}
+
+/* ── TABLE CELLS ── */
+td{padding:14px 16px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);vertical-align:middle;font-size:13px;line-height:1.5;}
+td:last-child{border-right:none;}
+tbody tr{cursor:pointer;transition:background .12s;}tbody tr:nth-child(even){background:rgba(255,255,255,.015);}
+tbody tr:hover{background:rgba(79,142,247,.05);}
+tbody tr:last-child td{border-bottom:none;}
+.td-name{font-weight:700;font-size:14px;color:var(--text);}
+.td-sub{font-size:11px;color:var(--text-muted);margin-top:2px;}
+.mono{font-family:Arial,Helvetica,sans-serif;font-size:11px;}
+.rn{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:var(--text-dim);text-align:center;}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:700;white-space:nowrap;letter-spacing:.3px;}
+.b-yes{background:var(--green-g);color:var(--green);border:1px solid rgba(52,209,126,.2);}
+.b-no{background:rgba(90,110,158,.1);color:var(--text-muted);border:1px solid rgba(90,110,158,.15);}
+.b-m{background:var(--blue-g);color:var(--blue2);border:1px solid rgba(79,142,247,.2);}
+.b-f{background:var(--pink-g);color:var(--pink);border:1px solid rgba(244,114,192,.2);}
+.b-course{background:var(--blue-gb);color:var(--blue2);border:1px solid rgba(79,142,247,.15);}
+.b-punjab{background:var(--orange-g);color:var(--orange);border:1px solid rgba(245,166,35,.2);}
+.b-jk{background:var(--purple-g);color:var(--purple);border:1px solid rgba(157,109,247,.2);}
+.b-up{background:var(--cyan-g);color:var(--cyan);border:1px solid rgba(48,213,232,.2);}
+.b-state{background:var(--teal-g);color:var(--teal);border:1px solid rgba(45,212,191,.2);}
+.b-inc{background:var(--gold-g);color:var(--gold2);border:1px solid rgba(201,168,76,.2);font-family:Arial,Helvetica,sans-serif;}
+
+/* ── RECEIPT PILLS ── */
+.rec-list{display:flex;flex-direction:column;gap:4px;}
+.rec-pill{display:inline-flex;align-items:center;gap:5px;background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:10px;white-space:nowrap;}
+.m-upi{color:var(--cyan);font-weight:700;}.m-cash{color:var(--green);font-weight:700;}
+.m-cheque{color:var(--orange);font-weight:700;}.m-dd{color:var(--purple);font-weight:700;}
+.m-neft,.m-rtgs{color:var(--blue2);font-weight:700;}
+
+/* add-col th */
+.add-col-th{min-width:50px;background:var(--card3);}
+.add-col-btn{width:32px;height:32px;background:var(--border);border:1px dashed var(--border2);border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);font-size:18px;margin:5px auto;transition:all .15s;}
+.add-col-btn:hover{background:var(--blue-gb);border-color:var(--blue);color:var(--blue2);}
+
+/* ── MODALS ── */
+.ov{position:fixed;inset:0;background:rgba(4,7,16,.85);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;backdrop-filter:blur(8px);}
+.ov.open{opacity:1;pointer-events:all;}
+.modal{background:var(--card);border:1px solid var(--border2);border-radius:18px;width:100%;max-width:720px;max-height:92vh;overflow-y:auto;transform:scale(.96) translateY(10px);transition:transform .25s cubic-bezier(.34,1.56,.64,1);box-shadow:0 14px 50px rgba(0,0,0,.7);}
+.ov.open .modal{transform:scale(1) translateY(0);}
+.modal.sm{max-width:440px;}.modal.lg{max-width:880px;}
+.mhd{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:linear-gradient(180deg,var(--card2),var(--card));border-radius:18px 18px 0 0;}
+.mtitle{font-weight:700;font-size:16px;color:var(--text);}
+.mclose{background:var(--card3);border:1px solid var(--border2);color:var(--text-muted);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:7px;line-height:1;transition:all .15s;}
+.mclose:hover{background:var(--red-g);color:var(--red);border-color:var(--red);}
+.mbd{padding:20px 24px;}
+.mft{padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2);border-radius:0 0 18px 18px;}
+
+/* ── FORM ── */
+.fg{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.fg label{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px;}
+.fg input[type=text],.fg input[type=date],.fg select,.fg textarea{background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:9px 12px;color:var(--text);font-family:Arial,Helvetica,sans-serif;font-size:12px;outline:none;width:100%;transition:all .18s;}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(79,142,247,.1);}
+.fg select option{background:var(--card2);}
+.fg textarea{resize:vertical;min-height:64px;}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px;}
+.fgrid .fg.full{grid-column:1/-1;}
+.sec-title{font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.9px;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.radio-group{display:flex;gap:8px;}
+.radio-btn{flex:1;background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:9px 12px;cursor:pointer;text-align:center;transition:all .18s;font-size:12px;font-weight:600;color:var(--text-muted);}
+.radio-btn:hover{border-color:var(--blue);color:var(--text);}
+.radio-btn.sel{border-color:var(--blue);background:var(--blue-gb);color:var(--text);box-shadow:0 0 0 1px rgba(79,142,247,.15);}
+.radio-btn input{display:none;}
+.cond-section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:4px;}
+.recs-area{display:flex;flex-direction:column;gap:10px;}
+.rec-row{background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;position:relative;}
+.rec-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;}
+@media(max-width:600px){.rec-grid{grid-template-columns:1fr 1fr;}}
+.rec-del{background:var(--red-g);border:1px solid rgba(242,92,92,.2);border-radius:7px;padding:7px 10px;cursor:pointer;color:var(--red);font-size:13px;transition:all .15s;}
+.rec-del:hover{background:rgba(242,92,92,.25);}
+.add-rec-btn{display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;background:var(--blue-gb);border:1px dashed rgba(79,142,247,.3);border-radius:9px;color:var(--blue2);font-size:12px;font-weight:600;cursor:pointer;width:100%;margin-top:8px;transition:all .18s;}
+.add-rec-btn:hover{background:var(--blue-g);border-color:var(--blue);}
+.rec-total{background:var(--card2);border:1px solid var(--border2);border-radius:8px;padding:9px 16px;font-size:12px;color:var(--text);font-weight:600;margin-top:8px;display:flex;gap:20px;justify-content:flex-end;flex-wrap:wrap;}
+.vsec{margin-bottom:18px;}
+.vsec-title{font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.vgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.vi label{font-size:10px;color:var(--text-muted);display:block;margin-bottom:3px;}
+.vi .v{font-size:12px;font-weight:600;color:var(--text);}
+.rmk-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px;font-size:12px;color:var(--text-muted);line-height:1.75;}
+.col-item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 14px;margin-bottom:7px;}
+.ci-lbl{flex:1;font-size:13px;font-weight:600;}
+.ci-type{font-size:10px;color:var(--text-muted);background:var(--border);padding:2px 7px;border-radius:4px;}
+.ci-vis{background:none;border:none;cursor:pointer;font-size:15px;padding:2px 5px;}
+.ci-del{background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:15px;padding:2px 6px;border-radius:5px;transition:all .15s;}
+.ci-del:hover{color:var(--red);background:var(--red-g);}
+.col-type-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
+.ctb{background:var(--surface);border:1px solid var(--border2);border-radius:9px;padding:11px 10px;cursor:pointer;text-align:center;transition:all .15s;}
+.ctb:hover,.ctb.sel{background:var(--blue-gb);border-color:var(--blue);}
+.ctb-icon{font-size:18px;margin-bottom:4px;}
+.ctb-lbl{font-size:11px;font-weight:700;color:var(--text);}
+.ctb-desc{font-size:10px;color:var(--text-muted);}
+.del-box{background:var(--red-g);border:1px solid rgba(242,92,92,.2);border-radius:10px;padding:16px;margin-bottom:4px;}
+.del-box p{font-size:13px;color:var(--text-muted);line-height:1.75;}
+
+/* ── TOASTS ── */
+.toasts{position:fixed;bottom:24px;right:24px;z-index:900;display:flex;flex-direction:column;gap:8px;}
+.toast{background:var(--card2);border:1px solid var(--border2);border-radius:10px;padding:11px 16px;font-size:12px;box-shadow:0 14px 50px rgba(0,0,0,.7);display:flex;align-items:center;gap:9px;animation:tsIn .22s cubic-bezier(.34,1.56,.64,1);transition:all .25s;min-width:180px;}
+.toast.ok{border-left:3px solid var(--green);background:linear-gradient(90deg,rgba(52,209,126,.06),var(--card2));}
+.toast.err{border-left:3px solid var(--red);background:linear-gradient(90deg,rgba(242,92,92,.06),var(--card2));}
+@keyframes tsIn{from{transform:translateX(120%) scale(.9);opacity:0;}to{transform:none;opacity:1;}}
+.empty-td{text-align:center;padding:56px 24px;color:var(--text-muted);}
+
+/* ── ANALYTICS ── */
+.an-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.an-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:16px 18px;}
+.an-title{font-weight:700;font-size:14px;color:var(--text);margin-bottom:3px;}
+.an-sub{font-size:11px;color:var(--text-muted);margin-bottom:12px;}
+.an-section-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;color:var(--blue2);background:var(--blue-gb);border:1px solid rgba(79,142,247,.15);border-radius:5px;padding:3px 10px;display:inline-block;margin-bottom:10px;}
+@media(max-width:700px){.an-row{grid-template-columns:1fr;}}
+
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--border3);}
+
+/* ════════════════════════════════════
+   MOBILE RESPONSIVE
+════════════════════════════════════ */
+@media(max-width:768px){
+  /* Header */
+  .hdr{height:auto;padding:10px 14px;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:500;}
+  .hbrand{flex:1;min-width:0;}
+  .htitle{font-size:12px;}
+  .hsub{font-size:10px;}
+  .hlogo{width:32px;height:32px;font-size:11px;flex-shrink:0;}
+  .hacts{width:100%;overflow-x:auto;padding-bottom:4px;gap:6px;flex-wrap:nowrap;}
+  .hacts::-webkit-scrollbar{height:3px;}
+  .hacts .hdiv{display:none;}
+  .btn-gold{font-size:11px;padding:7px 11px;}
+  .btn-ghost.btn-sm{font-size:10px;padding:5px 9px;}
+  .nav-btn{font-size:11px;padding:6px 10px;}
+
+  /* Main padding */
+  .main{padding:12px 10px;}
+
+  /* Stats row — 2 per row on mobile */
+  .stats-row{grid-template-columns:repeat(2,1fr)!important;gap:8px;}
+  .stat-card-normal{grid-column:span 1!important;}
+  .stat-card-map{grid-column:span 2!important;}
+  .sc-label{font-size:11px;}
+  .sc-value{font-size:22px;}
+  .sc-meta{font-size:10px;}
+
+  /* Toolbar */
+  .toolbar{flex-direction:column;gap:8px;}
+  .sbox{min-width:unset;width:100%;}
+
+  /* Table — horizontal scroll */
+  .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tbl-hdr{padding:10px 14px;flex-direction:column;align-items:flex-start;gap:6px;}
+  .tbl-title{font-size:13px;}
+  th,td{padding:8px 10px;white-space:nowrap;}
+
+  /* Modal full screen on mobile */
+  .ov{padding:0;align-items:flex-end;}
+  .modal{max-width:100%!important;width:100%;border-radius:18px 18px 0 0;max-height:92vh;}
+  .modal.sm{max-width:100%!important;}
+  .mhd{padding:16px 18px 12px;border-radius:18px 18px 0 0;}
+  .mbd{padding:14px 18px;}
+  .mft{padding:12px 18px;}
+
+  /* Form grid single column */
+  .fgrid{grid-template-columns:1fr!important;}
+  .fgrid .fg.full{grid-column:1!important;}
+  .rec-grid{grid-template-columns:1fr 1fr!important;}
+  .vgrid{grid-template-columns:1fr 1fr!important;}
+
+  /* Analytics */
+  .an-row{grid-template-columns:1fr!important;}
+  .an-card{padding:12px 14px;}
+  .an-title{font-size:13px;}
+
+  /* Pie charts centered, full width on mobile */
+  .an-card > div[style*="justify-content:center"] canvas{
+    max-width:260px!important;max-height:260px!important;
+    width:260px!important;height:260px!important;
+  }
+
+  /* Footer */
+  div[style*="Dr. Sarabjeet"]{font-size:11px;padding:14px 0 12px;}
+}
+
+@media(max-width:480px){
+  .stats-row{grid-template-columns:1fr 1fr!important;}
+  .hacts .btn-gold span:not(.nav-dot){display:none;}
+}
+
+
+/* ── AUTOCOMPLETE ── */
+.ac-wrap{position:relative;}
+.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--card3);border:1px solid var(--border2);border-radius:0 0 10px 10px;z-index:400;max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;}
+.ac-list.open{display:block;}
+.ac-item{padding:9px 14px;font-size:12px;cursor:pointer;color:var(--text);transition:background .12s;border-bottom:1px solid var(--border);}
+.ac-item:last-child{border-bottom:none;}
+.ac-item:hover,.ac-item.active{background:var(--blue-gb);color:var(--blue2);}
+.ac-item strong{color:var(--text);}
+
+
+
+
+/* ── LIGHT MODE ── */
+body.light-mode {
+  --bg:#f0f4ff;--bg2:#e8edf8;--surface:#fff;
+  --card:#ffffff;--card2:#f5f7ff;--card3:#eef1fb;
+  --border:#d0d8ee;--border2:#b8c4e0;--border3:#9aaad0;
+  --text:#1a2340;--text2:#3a4a70;--text-muted:#5060a0;--text-dim:#a0b0d0;
+  --gold-gb:rgba(201,168,76,.08);--blue-gb:rgba(79,142,247,.08);
+  --blue-g:rgba(79,142,247,.15);--green-g:rgba(52,209,126,.15);
+  --red-g:rgba(242,92,92,.15);--orange-g:rgba(245,166,35,.15);
+  --purple-g:rgba(157,109,247,.15);--cyan-g:rgba(48,213,232,.15);
+  --pink-g:rgba(244,114,192,.15);--teal-g:rgba(45,212,191,.15);
+  --yellow-g:rgba(251,191,36,.15);
+}
+body.light-mode { background:var(--bg) !important; }
+body.light-mode .hdr { background:rgba(240,244,255,.97) !important; }
+body.light-mode .tbl-wrap { box-shadow:0 4px 16px rgba(0,0,0,.08) !important; }
+body.light-mode .modal { background:var(--card) !important; }
+body.light-mode .fg input,
+body.light-mode .fg select,
+body.light-mode .fg textarea { background:#f5f7ff !important; color:var(--text) !important; }
+body.light-mode tbody tr:hover { background:rgba(79,142,247,.06) !important; }
+body.light-mode::before { display:none; }
+
+
+/* ── AUDIT TRAIL ── */
+.audit-modal-list{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;}
+.audit-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;display:flex;gap:12px;align-items:flex-start;}
+.audit-icon{font-size:18px;flex-shrink:0;margin-top:2px;}
+.audit-info{flex:1;}
+.audit-action{font-size:13px;font-weight:700;color:var(--text);}
+.audit-detail{font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.6;}
+.audit-time{font-size:10px;color:var(--text-dim);white-space:nowrap;margin-top:2px;}
+.audit-empty{text-align:center;padding:40px;color:var(--text-muted);font-size:13px;}
+
+
+/* ── EXCEL IMPORT ── */
+.import-zone{border:2px dashed var(--border2);border-radius:14px;padding:32px 20px;text-align:center;cursor:pointer;transition:all .2s;}
+.import-zone:hover,.import-zone.drag{border-color:var(--blue);background:var(--blue-gb);}
+.import-zone-icon{font-size:36px;margin-bottom:10px;}
+.import-zone-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:5px;}
+.import-zone-sub{font-size:12px;color:var(--text-muted);}
+.import-preview{margin-top:16px;max-height:240px;overflow-y:auto;}
+.import-preview table{width:100%;border-collapse:collapse;font-size:11px;}
+.import-preview th{background:var(--card3);padding:7px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:10px;text-transform:uppercase;}
+.import-preview td{padding:7px 10px;border-bottom:1px solid var(--border);color:var(--text);}
+.import-preview tr:last-child td{border-bottom:none;}
+.import-map{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;}
+.import-map select{background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:6px 8px;color:var(--text);font-family:Arial,Helvetica,sans-serif;font-size:12px;outline:none;}
+
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hbrand">
+    <div class="hlogo">GRD</div>
+    <div>
+      <div class="htitle">Guru Ram Dass Group of Colleges — Malout</div>
+      <div class="hsub">Admissions CRM · v8 · Session 2026-27 &nbsp;<span id="syncStatus" style="color:var(--orange);font-size:10px">⟳ Connecting…</span></div>
+    </div>
+  </div>
+  <div class="hacts">
+    <button class="nav-btn active" id="navListBtn" onclick="showSection('list')"><span class="nav-dot"></span> Students</button>
+    <button class="nav-btn" id="navAnalyticsBtn" onclick="showSection('analytics')"><span class="nav-dot"></span> Analytics</button>
+    <button class="nav-btn" id="navAuditBtn" onclick="openAuditModal()"><span class="nav-dot"></span> Audit Log</button>
+    <div class="hdiv"></div>
+    <button class="btn btn-ghost btn-sm" onclick="openManageCols()">⚙ Columns</button>
+    <button class="btn btn-ghost btn-sm" onclick="exportCSV()">↓ Export</button>
+    <button class="btn btn-ghost btn-sm" onclick="openImport()" style="border-color:var(--green);color:var(--green)">↑ Import Excel</button>
+    <button class="btn btn-ghost btn-sm" onclick="openFeeModal()" style="border-color:var(--cyan);color:var(--cyan)">₹ Fee Summary</button>
+    <button class="btn btn-ghost btn-sm" id="themeToggleBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- STATS ROW -->
+  <div class="stats-row" id="statsRow"></div>
+
+  <!-- ANALYTICS SECTION -->
+  <div id="sectionAnalytics" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+      <div style="font-weight:700;font-size:18px;color:var(--text)">Analytics — Session 2026-27</div>
+      <div style="font-size:12px;color:var(--text-muted)" id="analyticsSubtitle"></div>
+    </div>
+    <div class="an-section-label">1 · Students by Course</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">By Course — Bar</div><div class="an-sub">Enrolment per course</div><canvas id="chartCourseCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">By Course — Proportion</div><div class="an-sub">Share of each course</div><div style="display:flex;justify-content:center"><canvas id="chartCoursePie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">2 · Students by State</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">By State — Bar</div><div class="an-sub">Students from each state</div><canvas id="chartStateCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">By State — Proportion</div><div class="an-sub">Geographic distribution</div><div style="display:flex;justify-content:center"><canvas id="chartStatePie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">3 · Gender Distribution</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">Gender — Bar</div><div class="an-sub">Male vs Female</div><canvas id="chartGenderCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">Gender — Proportion</div><div class="an-sub">Gender split</div><div style="display:flex;justify-content:center"><canvas id="chartGenderPie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">4 · Attendance Status</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">Attendance — Bar</div><div class="an-sub">Attending vs Non-Attending</div><canvas id="chartAttCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">Attendance — Proportion</div><div class="an-sub">Attending share</div><div style="display:flex;justify-content:center"><canvas id="chartAttPie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">5 · Hostel vs Day Scholar</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">Accommodation — Bar</div><div class="an-sub">Day Scholar / Boys Hostel / Girls Hostel</div><canvas id="chartHostelCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">Accommodation — Proportion</div><div class="an-sub">Accommodation type split</div><div style="display:flex;justify-content:center"><canvas id="chartHostelPie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">6 · Scholarship</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">Scholarship — Bar</div><div class="an-sub">With vs Without scholarship</div><canvas id="chartScholCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">Scholarship — Proportion</div><div class="an-sub">Scholarship share</div><div style="display:flex;justify-content:center"><canvas id="chartScholPie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">7 · Consultants</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">By Consultant — Horizontal Bar</div><div class="an-sub">Top consultants by referrals</div><canvas id="chartConCol" height="140"></canvas></div>
+      <div class="an-card"><div class="an-title">Consultant — Proportion</div><div class="an-sub">Referral share by consultant</div><div style="display:flex;justify-content:center"><canvas id="chartConPie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">8 · Fee Collection</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">Fee — Bar</div><div class="an-sub">In College fee vs Incentive paid (₹)</div><canvas id="chartFeeCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">Fee — Proportion</div><div class="an-sub">In College vs Incentive proportion</div><div style="display:flex;justify-content:center"><canvas id="chartFeePie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-section-label">9 · Admissions Timeline</div>
+    <div class="an-row">
+      <div class="an-card"><div class="an-title">Timeline — Bar</div><div class="an-sub">Monthly admissions count</div><canvas id="chartTimeCol" height="70"></canvas></div>
+      <div class="an-card"><div class="an-title">Timeline — Proportion</div><div class="an-sub">Month-wise share</div><div style="display:flex;justify-content:center"><canvas id="chartTimePie" style="max-width:320px!important;max-height:320px!important;width:320px!important;height:320px!important"></canvas></div></div>
+    </div>
+    <div class="an-card" style="margin-bottom:16px">
+      <div class="an-title" style="margin-bottom:14px">Detailed Numeric Summary</div>
+      <div id="analyticsSummaryTable"></div>
+    </div>
+  </div>
+
+  <!-- STUDENT LIST -->
+  <div id="sectionList">
+    <div class="toolbar">
+      <div class="sbox">
+        <span class="sbox-ic">⌕</span>
+        <input type="text" id="gSearch" placeholder="Search students, courses, states…" oninput="applyFilters()">
+      </div>
+      <button class="btn btn-ghost btn-sm" id="clearFltBtn" style="display:none" onclick="clearAllFilters()">✕ Clear Filters</button>
+      <button class="btn btn-ghost btn-sm" onclick="addColumn()">＋ Add Column</button>
+    </div>
+    <div class="pill-row" id="pillRow"></div>
+    <div class="tbl-wrap">
+      <div class="tbl-hdr">
+        <span class="tbl-title">Student Records <span style="font-size:11px;color:var(--text-muted);font-weight:400" id="rowCount"></span></span> &nbsp;<button class="btn btn-gold btn-sm" onclick="openAdd()">＋ Add New Student</button>
+      </div>
+      <div class="tbl-scroll">
+        <table id="mainTbl">
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FEE SUMMARY MODAL -->
+<div class="ov" id="feeOv" onclick="outerClose(event,'feeOv')">
+  <div class="modal sm">
+    <div class="mhd"><span class="mtitle">₹ Fee Summary</span><button class="mclose" onclick="closeModal('feeOv')">✕</button></div>
+    <div class="mbd">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="background:var(--card2);border:1px solid var(--border2);border-radius:12px;padding:18px 20px;text-align:center">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Total Fee Received</div>
+          <div style="font-size:32px;font-weight:700;color:var(--text)" id="fsTotalFee">₹0</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px" id="fsFilterNote">All students</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="background:rgba(48,213,232,.07);border:1px solid rgba(48,213,232,.2);border-radius:10px;padding:14px 16px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.8px;margin-bottom:7px">🏫 In College</div>
+            <div style="font-size:22px;font-weight:700;color:var(--cyan)" id="fsCollegeFee">₹0</div>
+          </div>
+          <div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:14px 16px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:var(--gold2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:7px">💰 Incentive Paid</div>
+            <div style="font-size:22px;font-weight:700;color:var(--gold2)" id="fsIncentiveFee">₹0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mft"><button class="btn btn-ghost" onclick="closeModal('feeOv')">Close</button></div>
+  </div>
+</div>
+
+<!-- FORM MODAL -->
+<div class="ov" id="formOv" onclick="outerClose(event,'formOv')">
+  <div class="modal lg">
+    <div class="mhd"><span class="mtitle" id="formTitle">Add New Student</span><button class="mclose" onclick="closeModal('formOv')">✕</button></div>
+    <div class="mbd" id="formBd"></div>
+    <div class="mft">
+      <button class="btn btn-ghost" onclick="closeModal('formOv')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStudent()">Save Student</button>
+    </div>
+  </div>
+</div>
+
+<!-- VIEW MODAL -->
+<div class="ov" id="viewOv" onclick="outerClose(event,'viewOv')">
+  <div class="modal lg">
+    <div class="mhd"><span class="mtitle" id="viewTitle">Student</span><button class="mclose" onclick="closeModal('viewOv')">✕</button></div>
+    <div class="mbd" id="viewBd"></div>
+    <div class="mft" id="viewFt"></div>
+  </div>
+</div>
+
+<!-- ADD COLUMN MODAL -->
+<div class="ov" id="addColOv" onclick="outerClose(event,'addColOv')">
+  <div class="modal sm">
+    <div class="mhd"><span class="mtitle">Add New Column</span><button class="mclose" onclick="closeModal('addColOv')">✕</button></div>
+    <div class="mbd">
+      <div class="fg"><label>Column Name</label><input type="text" id="newColName" placeholder="e.g. Aadhaar, Blood Group…"></div>
+      <div style="font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Column Type</div>
+      <div class="col-type-grid" id="ctGrid">
+        <div class="ctb sel" onclick="selCT('text',this)"><div class="ctb-icon">📝</div><div class="ctb-lbl">Text</div><div class="ctb-desc">Free text</div></div>
+        <div class="ctb" onclick="selCT('number',this)"><div class="ctb-icon">🔢</div><div class="ctb-lbl">Number</div></div>
+        <div class="ctb" onclick="selCT('date',this)"><div class="ctb-icon">📅</div><div class="ctb-lbl">Date</div></div>
+        <div class="ctb" onclick="selCT('yesno',this)"><div class="ctb-icon">✅</div><div class="ctb-lbl">Yes/No</div></div>
+        <div class="ctb" onclick="selCT('select',this)"><div class="ctb-icon">📋</div><div class="ctb-lbl">Dropdown</div></div>
+        <div class="ctb" onclick="selCT('phone',this)"><div class="ctb-icon">📞</div><div class="ctb-lbl">Phone</div></div>
+      </div>
+      <div class="fg" id="ctOptsWrap" style="display:none"><label>Options (comma separated)</label><input type="text" id="ctOpts" placeholder="Opt1, Opt2, Opt3…"></div>
+    </div>
+    <div class="mft">
+      <button class="btn btn-ghost" onclick="closeModal('addColOv')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmAddCol()">Add Column</button>
+    </div>
+  </div>
+</div>
+
+<!-- MANAGE COLUMNS MODAL -->
+<div class="ov" id="mgrColOv" onclick="outerClose(event,'mgrColOv')">
+  <div class="modal">
+    <div class="mhd"><span class="mtitle">Manage Columns</span><button class="mclose" onclick="closeModal('mgrColOv')">✕</button></div>
+    <div class="mbd">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <span style="font-size:12px;color:var(--text-muted)">Tick/untick to show or hide. Double-click name to rename.</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="colSelectAll(true)">✓ Select All</button>
+          <button class="btn btn-ghost btn-sm" onclick="colSelectAll(false)">✗ Deselect All</button>
+        </div>
+      </div>
+      <div id="colList"></div>
+    </div>
+    <div class="mft"><button class="btn btn-ghost" onclick="closeModal('mgrColOv')">Cancel</button><button class="btn btn-primary" onclick="applyColVisibility()">✓ Apply Changes</button></div>
+  </div>
+</div>
+
+<!-- DELETE MODAL -->
+<div class="ov" id="delOv" onclick="outerClose(event,'delOv')">
+  <div class="modal sm">
+    <div class="mhd"><span class="mtitle">Delete Student</span><button class="mclose" onclick="closeModal('delOv')">✕</button></div>
+    <div class="mbd"><div class="del-box"><p>Delete <strong id="delName" style="color:var(--text)"></strong>? This cannot be undone.</p></div></div>
+    <div class="mft">
+      <button class="btn btn-ghost" onclick="closeModal('delOv')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDel()">Delete</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- AUDIT MODAL -->
+<div class="ov" id="auditOv" onclick="outerClose(event,'auditOv')">
+  <div class="modal">
+    <div class="mhd"><span class="mtitle">📋 Audit Trail</span><button class="mclose" onclick="closeModal('auditOv')">✕</button></div>
+    <div class="mbd">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <span style="font-size:12px;color:var(--text-muted)">All changes made to student records</span>
+        <button class="btn btn-ghost btn-sm" onclick="clearAudit()" style="color:var(--red);border-color:var(--red)">🗑 Clear Log</button>
+      </div>
+      <div class="audit-modal-list" id="auditModalList"></div>
+    </div>
+    <div class="mft"><button class="btn btn-ghost" onclick="closeModal('auditOv')">Close</button></div>
+  </div>
+</div>
+
+<!-- IMPORT MODAL -->
+<div class="ov" id="importOv" onclick="outerClose(event,'importOv')">
+  <div class="modal lg">
+    <div class="mhd"><span class="mtitle">↑ Import from Excel</span><button class="mclose" onclick="closeModal('importOv')">✕</button></div>
+    <div class="mbd" id="importBd">
+      <div class="import-zone" id="importZone" onclick="document.getElementById('importFile').click()"
+        ondragover="event.preventDefault();this.classList.add('drag')"
+        ondragleave="this.classList.remove('drag')"
+        ondrop="handleImportDrop(event)">
+        <div class="import-zone-icon">📊</div>
+        <div class="import-zone-title">Click to select or drag & drop your Excel file</div>
+        <div class="import-zone-sub">Supports .xlsx and .csv files</div>
+        <input type="file" id="importFile" accept=".xlsx,.csv" style="display:none" onchange="handleImportFile(this)">
+      </div>
+      <div id="importColMap" style="display:none;margin-top:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px">Map your Excel columns → CRM fields</div>
+        <div id="importMapRows"></div>
+        <div class="import-preview" id="importPreview"></div>
+      </div>
+    </div>
+    <div class="mft">
+      <button class="btn btn-ghost" onclick="closeModal('importOv')">Cancel</button>
+      <button class="btn btn-primary" id="importConfirmBtn" style="display:none" onclick="confirmImport()">✓ Import Students</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<!-- FOOTER -->
+<div style="text-align:center;padding:20px 0 16px;color:#5a6e9e;font-size:13px;font-weight:500;border-top:1px solid #1f2d4d;margin-top:24px;position:relative;z-index:1;">
+  Designed and Developed with <span style="color:#f25c5c;font-size:16px;vertical-align:middle;">&#9829;</span> by <strong style="color:#dde5f8;font-weight:700;">Sarabjeet Singh</strong>
+</div>
+
+
+<script>
+// ════════════════════════════════════
+//  COLUMNS
+// ════════════════════════════════════
+// ════════════════════════════════════
+//  INDIA STATES + DISTRICTS DATA
+// ════════════════════════════════════
+const INDIA_STATES = ["Andaman & Nicobar Islands","Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chandigarh","Chhattisgarh","Dadra & Nagar Haveli and Daman & Diu","Delhi","Goa","Gujarat","Haryana","Himachal Pradesh","Jammu & Kashmir","Jharkhand","Karnataka","Kerala","Ladakh","Lakshadweep","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Puducherry","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal"];
+
+const INDIA_DISTRICTS = {
+  "Punjab":["Amritsar","Barnala","Bathinda","Faridkot","Fatehgarh Sahib","Fazilka","Ferozepur","Gurdaspur","Hoshiarpur","Jalandhar","Kapurthala","Ludhiana","Malerkotla","Mansa","Moga","Mohali","Muktsar","Nawanshahr","Pathankot","Patiala","Rupnagar","Sangrur","Tarn Taran"],
+  "Jammu & Kashmir":["Anantnag","Bandipora","Baramulla","Budgam","Doda","Ganderbal","Jammu","Kathua","Kishtwar","Kulgam","Kupwara","Poonch","Pulwama","Rajouri","Ramban","Reasi","Samba","Shopian","Srinagar","Udhampur"],
+  "Uttar Pradesh":["Agra","Aligarh","Ambedkar Nagar","Amethi","Amroha","Auraiya","Ayodhya","Azamgarh","Baghpat","Bahraich","Ballia","Balrampur","Banda","Barabanki","Bareilly","Basti","Bhadohi","Bijnor","Budaun","Bulandshahr","Chandauli","Chitrakoot","Deoria","Etah","Etawah","Farrukhabad","Fatehpur","Firozabad","Gautam Buddha Nagar","Ghaziabad","Ghazipur","Gonda","Gorakhpur","Hamirpur","Hapur","Hardoi","Hathras","Jalaun","Jaunpur","Jhansi","Kannauj","Kanpur Dehat","Kanpur Nagar","Kasganj","Kaushambi","Kushinagar","Lakhimpur Kheri","Lalitpur","Lucknow","Maharajganj","Mahoba","Mainpuri","Mathura","Mau","Meerut","Mirzapur","Moradabad","Muzaffarnagar","Pilibhit","Pratapgarh","Prayagraj","Rae Bareli","Rampur","Saharanpur","Sambhal","Sant Kabir Nagar","Shahjahanpur","Shamli","Shrawasti","Siddharthnagar","Sitapur","Sonbhadra","Sultanpur","Unnao","Varanasi"],
+  "Haryana":["Ambala","Bhiwani","Charkhi Dadri","Faridabad","Fatehabad","Gurugram","Hisar","Jhajjar","Jind","Kaithal","Karnal","Kurukshetra","Mahendragarh","Mewat","Palwal","Panchkula","Panipat","Rewari","Rohtak","Sirsa","Sonipat","Yamunanagar"],
+  "Himachal Pradesh":["Bilaspur","Chamba","Hamirpur","Kangra","Kinnaur","Kullu","Lahaul & Spiti","Mandi","Shimla","Sirmaur","Solan","Una"],
+  "Rajasthan":["Ajmer","Alwar","Banswara","Baran","Barmer","Bharatpur","Bhilwara","Bikaner","Bundi","Chittorgarh","Churu","Dausa","Dholpur","Dungarpur","Hanumangarh","Jaipur","Jaisalmer","Jalore","Jhalawar","Jhunjhunu","Jodhpur","Karauli","Kota","Nagaur","Pali","Pratapgarh","Rajsamand","Sawai Madhopur","Sikar","Sirohi","Sri Ganganagar","Tonk","Udaipur"],
+  "Delhi":["Central Delhi","East Delhi","New Delhi","North Delhi","North East Delhi","North West Delhi","Shahdara","South Delhi","South East Delhi","South West Delhi","West Delhi"],
+  "Bihar":["Araria","Arwal","Aurangabad","Banka","Begusarai","Bhagalpur","Bhojpur","Buxar","Darbhanga","East Champaran","Gaya","Gopalganj","Jamui","Jehanabad","Kaimur","Katihar","Khagaria","Kishanganj","Lakhisarai","Madhepura","Madhubani","Munger","Muzaffarpur","Nalanda","Nawada","Patna","Purnia","Rohtas","Saharsa","Samastipur","Saran","Sheikhpura","Sheohar","Sitamarhi","Siwan","Supaul","Vaishali","West Champaran"],
+  "Gujarat":["Ahmedabad","Amreli","Anand","Aravalli","Banaskantha","Bharuch","Bhavnagar","Botad","Chhota Udaipur","Dahod","Dang","Devbhoomi Dwarka","Gandhinagar","Gir Somnath","Jamnagar","Junagadh","Kheda","Kutch","Mahisagar","Mehsana","Morbi","Narmada","Navsari","Panchmahal","Patan","Porbandar","Rajkot","Sabarkantha","Surat","Surendranagar","Tapi","Vadodara","Valsad"],
+  "Maharashtra":["Ahmednagar","Akola","Amravati","Aurangabad","Beed","Bhandara","Buldhana","Chandrapur","Dhule","Gadchiroli","Gondia","Hingoli","Jalgaon","Jalna","Kolhapur","Latur","Mumbai City","Mumbai Suburban","Nagpur","Nanded","Nandurbar","Nashik","Osmanabad","Palghar","Parbhani","Pune","Raigad","Ratnagiri","Sangli","Satara","Sindhudurg","Solapur","Thane","Wardha","Washim","Yavatmal"],
+  "Karnataka":["Bagalkot","Bangalore Rural","Bangalore Urban","Belagavi","Bellary","Bidar","Chamarajanagar","Chikkaballapur","Chikkamagaluru","Chitradurga","Dakshina Kannada","Davangere","Dharwad","Gadag","Hassan","Haveri","Kalaburagi","Kodagu","Kolar","Koppal","Mandya","Mysuru","Raichur","Ramanagara","Shivamogga","Tumakuru","Udupi","Uttara Kannada","Vijayapura","Yadgir"],
+  "Tamil Nadu":["Ariyalur","Chengalpattu","Chennai","Coimbatore","Cuddalore","Dharmapuri","Dindigul","Erode","Kallakurichi","Kanchipuram","Kanyakumari","Karur","Krishnagiri","Madurai","Mayiladuthurai","Nagapattinam","Namakkal","Nilgiris","Perambalur","Pudukkottai","Ramanathapuram","Ranipet","Salem","Sivaganga","Tenkasi","Thanjavur","Theni","Thoothukudi","Tiruchirappalli","Tirunelveli","Tirupathur","Tiruppur","Tiruvallur","Tiruvannamalai","Tiruvarur","Vellore","Villupuram","Virudhunagar"],
+  "Andhra Pradesh":["Alluri Sitharama Raju","Anakapalli","Anantapur","Bapatla","Chittoor","East Godavari","Eluru","Guntur","Kakinada","Krishna","Kurnool","Nandyal","NTR","Palnadu","Parvathipuram Manyam","Sri Potti Sriramulu Nellore","Sri Sathya Sai","Srikakulam","Tirupati","Visakhapatnam","Vizianagaram","West Godavari","YSR Kadapa"],
+  "Telangana":["Adilabad","Bhadradri Kothagudem","Hyderabad","Jagtial","Jangaon","Jayashankar Bhupalpally","Jogulamba Gadwal","Kamareddy","Karimnagar","Khammam","Kumuram Bheem","Mahabubabad","Mahabubnagar","Mancherial","Medak","Medchal Malkajgiri","Mulugu","Nagarkurnool","Nalgonda","Narayanpet","Nirmal","Nizamabad","Peddapalli","Rajanna Sircilla","Rangareddy","Sangareddy","Siddipet","Suryapet","Vikarabad","Wanaparthy","Warangal Rural","Warangal Urban","Yadadri Bhuvanagiri"],
+  "Kerala":["Alappuzha","Ernakulam","Idukki","Kannur","Kasaragod","Kollam","Kottayam","Kozhikode","Malappuram","Palakkad","Pathanamthitta","Thiruvananthapuram","Thrissur","Wayanad"],
+  "Madhya Pradesh":["Agar Malwa","Alirajpur","Anuppur","Ashoknagar","Balaghat","Barwani","Betul","Bhind","Bhopal","Burhanpur","Chhatarpur","Chhindwara","Damoh","Datia","Dewas","Dhar","Dindori","Guna","Gwalior","Harda","Hoshangabad","Indore","Jabalpur","Jhabua","Katni","Khandwa","Khargone","Mandla","Mandsaur","Morena","Narsinghpur","Neemuch","Niwari","Panna","Raisen","Rajgarh","Ratlam","Rewa","Sagar","Satna","Sehore","Seoni","Shahdol","Shajapur","Sheopur","Shivpuri","Sidhi","Singrauli","Tikamgarh","Ujjain","Umaria","Vidisha"],
+  "Chhattisgarh":["Balod","Baloda Bazar","Balrampur","Bastar","Bemetara","Bijapur","Bilaspur","Dantewada","Dhamtari","Durg","Gariaband","Gaurela-Pendra-Marwahi","Janjgir-Champa","Jashpur","Kabirdham","Kanker","Kondagaon","Korba","Koriya","Mahasamund","Mungeli","Narayanpur","Raigarh","Raipur","Rajnandgaon","Sukma","Surajpur","Surguja"],
+  "Odisha":["Angul","Balangir","Balasore","Bargarh","Bhadrak","Boudh","Cuttack","Deogarh","Dhenkanal","Gajapati","Ganjam","Jagatsinghpur","Jajpur","Jharsuguda","Kalahandi","Kandhamal","Kendrapara","Kendujhar","Khordha","Koraput","Malkangiri","Mayurbhanj","Nabarangpur","Nayagarh","Nuapada","Puri","Rayagada","Sambalpur","Sonepur","Sundargarh"],
+  "Jharkhand":["Bokaro","Chatra","Deoghar","Dhanbad","Dumka","East Singhbhum","Garhwa","Giridih","Godda","Gumla","Hazaribagh","Jamtara","Khunti","Koderma","Latehar","Lohardaga","Pakur","Palamu","Ramgarh","Ranchi","Sahebganj","Seraikela Kharsawan","Simdega","West Singhbhum"],
+  "Uttarakhand":["Almora","Bageshwar","Chamoli","Champawat","Dehradun","Haridwar","Nainital","Pauri Garhwal","Pithoragarh","Rudraprayag","Tehri Garhwal","Udham Singh Nagar","Uttarkashi"],
+  "West Bengal":["Alipurduar","Bankura","Birbhum","Cooch Behar","Dakshin Dinajpur","Darjeeling","Hooghly","Howrah","Jalpaiguri","Jhargram","Kalimpong","Kolkata","Malda","Murshidabad","Nadia","North 24 Parganas","Paschim Bardhaman","Paschim Medinipur","Purba Bardhaman","Purba Medinipur","Purulia","South 24 Parganas","Uttar Dinajpur"],
+  "Assam":["Bajali","Baksa","Barpeta","Biswanath","Bongaigaon","Cachar","Charaideo","Chirang","Darrang","Dhemaji","Dhubri","Dibrugarh","Dima Hasao","Goalpara","Golaghat","Haflong","Hailakandi","Hojai","Jorhat","Kamrup","Kamrup Metropolitan","Karbi Anglong","Karimganj","Kokrajhar","Lakhimpur","Majuli","Morigaon","Nagaon","Nalbari","Sivasagar","Sonitpur","South Salmara-Mankachar","Tamulpur","Tinsukia","Udalguri","West Karbi Anglong"],
+  "Chandigarh":["Chandigarh"],
+  "Goa":["North Goa","South Goa"],
+  "Andaman & Nicobar Islands":["Nicobar","North & Middle Andaman","South Andaman"],
+  "Arunachal Pradesh":["Anjaw","Changlang","Dibang Valley","East Kameng","East Siang","Kamle","Kra Daadi","Kurung Kumey","Lepa Rada","Lohit","Longding","Lower Dibang Valley","Lower Siang","Lower Subansiri","Namsai","Pakke Kessang","Papum Pare","Shi Yomi","Siang","Tawang","Tirap","Upper Dibang Valley","Upper Siang","Upper Subansiri","West Kameng","West Siang"],
+  "Manipur":["Bishnupur","Chandel","Churachandpur","Imphal East","Imphal West","Jiribam","Kakching","Kamjong","Kangpokpi","Noney","Pherzawl","Senapati","Tamenglong","Tengnoupal","Thoubal","Ukhrul"],
+  "Meghalaya":["East Garo Hills","East Jaintia Hills","East Khasi Hills","Eastern West Khasi Hills","North Garo Hills","Ri Bhoi","South Garo Hills","South West Garo Hills","South West Khasi Hills","West Garo Hills","West Jaintia Hills","West Khasi Hills"],
+  "Mizoram":["Aizawl","Champhai","Hnahthial","Khawzawl","Kolasib","Lawngtlai","Lunglei","Mamit","Saiha","Saitual","Serchhip"],
+  "Nagaland":["Chumoukedima","Dimapur","Kiphire","Kohima","Longleng","Mokokchung","Mon","Niuland","Noklak","Peren","Phek","Shamator","Tseminyu","Tuensang","Wokha","Zunheboto"],
+  "Sikkim":["East Sikkim","North Sikkim","Pakyong","Soreng","South Sikkim","West Sikkim"],
+  "Tripura":["Dhalai","Gomati","Khowai","North Tripura","Sepahijala","South Tripura","Unakoti","West Tripura"],
+  "Ladakh":["Kargil","Leh"],
+  "Lakshadweep":["Lakshadweep"],
+  "Puducherry":["Karaikal","Mahe","Puducherry","Yanam"],
+  "Dadra & Nagar Haveli and Daman & Diu":["Dadra & Nagar Haveli","Daman","Diu"]
+};
+
+function getDistricts(state){ return INDIA_DISTRICTS[state] || []; }
+function onStateChange(selectEl){
+  const state = selectEl.value;
+  const distEl = document.getElementById('ff_district');
+  if(!distEl) return;
+  const dists = getDistricts(state);
+  if(dists.length){
+    distEl.innerHTML = '<option value="">Select District…</option>' + dists.map(d=>`<option>${d}</option>`).join('');
+    distEl.disabled = false;
+    distEl.closest('.fg').style.display = '';
+  } else {
+    distEl.innerHTML = '<option value="">No districts</option>';
+    distEl.disabled = true;
+    distEl.closest('.fg').style.display = 'none';
+  }
+  // also pre-select if editing
+}
+
+let columns = [
+  {id:'sno',label:'S.No',type:'number',builtin:true,visible:true},
+  {id:'name',label:'Student Name',type:'text',builtin:true,visible:true},
+  {id:'father',label:"Father's Name",type:'text',builtin:true,visible:true},
+  {id:'gender',label:'Gender',type:'select',builtin:true,visible:true,options:['Male','Female']},
+  {id:'course',label:'Course',type:'select',builtin:true,visible:true,
+   options:['D.Pharmacy','B.Pharmacy','Pharm.D','B.Sc (Radiology)','B.Sc (Medical Lab Sciences)','B.Sc (AT/OT)','B.Sc (Dialysis Technology)','B.Sc (Optometry)','B.Sc (Radiology LEET)','B.Sc (Medical Lab Sciences LEET)','B.Sc (AT/OT LEET)','B.Sc (Dialysis Technology LEET)','B.Sc (Optometry LEET)','ANM','GNM','BA (Computer Science)','B.Sc (Information Technology)','BA (Open)','MA (Open)','B.Ed']},
+  {id:'contact',label:'Contact No.',type:'phone',builtin:true,visible:true},
+  {id:'consultant',label:'Consultant',type:'text',builtin:true,visible:true},
+  {id:'staff',label:'Staff Referred',type:'text',builtin:true,visible:true},
+  {id:'attending',label:'Attending',type:'yesno',builtin:true,visible:true},
+  {id:'attendType',label:'Day Scholar / Hostel',type:'select',builtin:true,visible:true,options:['Day Scholar','Hostel']},
+  {id:'hostelType',label:'Hostel Type',type:'select',builtin:true,visible:true,options:['Boys Hostel','Girls Hostel']},
+  {id:'scholarship',label:'Scholarship',type:'yesno',builtin:true,visible:true},
+  {id:'receipts',label:'Receipts / Fee',type:'receipts',builtin:true,visible:true},
+  {id:'incentive',label:'Incentive Paid',type:'text',builtin:true,visible:true},
+  {id:'dateAdmission',label:'Date of Admission',type:'date',builtin:true,visible:true},
+  {id:'dateReporting',label:'Date of Reporting',type:'date',builtin:true,visible:true},
+  {id:'state',label:'State',type:'select',builtin:true,visible:true,options:[]},
+  {id:'district',label:'District',type:'select',builtin:true,visible:true,options:[]},
+  {id:'remarks',label:'Remarks',type:'text',builtin:true,visible:true},
+];
+
+// ════════════════════════════════════
+//  DATA
+// ════════════════════════════════════
+let students = [
+  {id:1,sno:1,name:"Inderjeet Singh",father:"Darbara Singh",gender:"Male",course:"B.Pharmacy",contact:"62849-31358",consultant:"Vivek Dhir",staff:"Sarabjeet Singh",attending:"Yes",attendType:"Day Scholar",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"6839",date:"2025-08-05"},{amount:"5000",mode:"Cash",receiptNo:"10804",date:"2025-08-30"}],incentive:"0",dateAdmission:"2025-11-06",dateReporting:"",state:"Punjab",remarks:"10,000/- Received. No Incentive Paid till 17/11/2025"},
+  {id:2,sno:2,name:"Sahil Singh",father:"Ram Singh",gender:"Male",course:"B.Pharmacy",contact:"96467-96301",consultant:"Vivek Dhir",staff:"Sarabjeet Singh",attending:"Yes",attendType:"Day Scholar",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"6840",date:"2025-08-05"},{amount:"5000",mode:"UPI",receiptNo:"10805",date:"2025-08-30"}],incentive:"0",dateAdmission:"2025-11-06",dateReporting:"",state:"Punjab",remarks:""},
+  {id:3,sno:3,name:"Rajni",father:"Jassa Singh",gender:"Female",course:"Pharm.D",contact:"80542-37253",consultant:"Nirmal Sir",staff:"Sarabjeet Singh",attending:"Yes",attendType:"Day Scholar",hostelType:"",scholarship:"Yes",receipts:[{amount:"5000",mode:"Cash",receiptNo:"9901",date:"2025-11-13"}],incentive:"0",dateAdmission:"2025-11-13",dateReporting:"",state:"Punjab",remarks:""},
+  {id:4,sno:4,name:"Shibu",father:"Amar Paswan",gender:"Male",course:"D.Pharmacy",contact:"90566-04484",consultant:"Direct Online",staff:"Harleen/Vishal",attending:"Yes",attendType:"Day Scholar",hostelType:"",scholarship:"Yes",receipts:[],incentive:"0",dateAdmission:"2025-12-09",dateReporting:"",state:"Punjab",remarks:"First fee will be paid on or before 15th Jan 2026"},
+  {id:5,sno:5,name:"Khushpreet Singh",father:"Jagjeet Singh",gender:"Male",course:"D.Pharmacy",contact:"78145-37216",consultant:"Hamid Guru Kashi",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"10601",date:"2025-12-17"},{amount:"30000",mode:"Cash",receiptNo:"10602",date:"2025-12-17"}],incentive:"30,000/-",dateAdmission:"2025-12-17",dateReporting:"",state:"Punjab",remarks:"30,000/- Incentive paid to consultant"},
+  {id:6,sno:6,name:"Romana Rafiq",father:"Mohammad Rafiq Bhat",gender:"Female",course:"B.Sc (Medical Lab Sciences LEET)",contact:"99063-02036",consultant:"Zahoor Adesh",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"Cash",receiptNo:"1328",date:"2025-12-26"}],incentive:"0",dateAdmission:"2025-12-26",dateReporting:"",state:"J&K",remarks:"Annual pkg 35,000/-. Consultant pkg 40,000/-"},
+  {id:7,sno:7,name:"Charanjeet Kaur",father:"Ajaib Singh",gender:"Female",course:"BA (Computer Science)",contact:"",consultant:"Sukhpal",staff:"Sarabjeet Singh",attending:"No",attendType:"",hostelType:"",scholarship:"Yes",receipts:[{amount:"1000",mode:"Cash",receiptNo:"",date:"2026-01-05"}],incentive:"0",dateAdmission:"2026-01-05",dateReporting:"",state:"Punjab",remarks:""},
+  {id:8,sno:8,name:"Chhindo",father:"Pyara Singh",gender:"Female",course:"GNM",contact:"",consultant:"Sarabjeet Maam",staff:"Sarabjeet Singh",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"Cash",receiptNo:"",date:"2026-01-07"}],incentive:"5000/-",dateAdmission:"2026-01-07",dateReporting:"",state:"Punjab",remarks:"SC student, non attending"},
+  {id:9,sno:9,name:"Neelofar Manzoor",father:"Manzoor Ahmad Wani",gender:"Female",course:"D.Pharmacy",contact:"",consultant:"Gulam Nabi (Sopore)",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"10603",date:"2026-01-09"},{amount:"30000",mode:"Cash",receiptNo:"10604",date:"2026-01-09"}],incentive:"30,000/-",dateAdmission:"2026-01-09",dateReporting:"",state:"J&K",remarks:"Pkg 1,20,000/- + reg"},
+  {id:10,sno:10,name:"Fatima Nazir",father:"Nazir Ahmad Dar",gender:"Female",course:"D.Pharmacy",contact:"",consultant:"Gulam Nabi (Sopore)",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"10605",date:"2026-01-09"},{amount:"30000",mode:"Cash",receiptNo:"10606",date:"2026-01-09"}],incentive:"30,000/-",dateAdmission:"2026-01-09",dateReporting:"",state:"J&K",remarks:"Pkg 1,20,000/- + reg"},
+  {id:11,sno:11,name:"Inshu Mohammad",father:"Gulam Mohammad Dar",gender:"Male",course:"B.Sc (Medical Lab Sciences LEET)",contact:"",consultant:"Zahoor Adesh",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"1330",date:"2026-01-15"}],incentive:"0",dateAdmission:"2026-01-15",dateReporting:"",state:"J&K",remarks:"Annual pkg 35,000/-"},
+  {id:12,sno:12,name:"Gaurav",father:"Shri Mewa Lal",gender:"Male",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8204",date:"2026-01-17"}],incentive:"0",dateAdmission:"2026-01-17",dateReporting:"",state:"UP",remarks:""},
+  {id:13,sno:13,name:"Arjun Kumar Maurya",father:"Shri Ram Kumar Maurya",gender:"Male",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8203",date:"2026-01-17"}],incentive:"0",dateAdmission:"2026-01-17",dateReporting:"",state:"UP",remarks:""},
+  {id:14,sno:14,name:"Aditya Jaiswal",father:"Vijay Kumar",gender:"Male",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8201",date:"2026-01-17"}],incentive:"0",dateAdmission:"2026-01-17",dateReporting:"",state:"UP",remarks:""},
+  {id:15,sno:15,name:"Vinod Kumar Pal",father:"Dharmraj Pal",gender:"Male",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8202",date:"2026-01-17"}],incentive:"0",dateAdmission:"2026-01-17",dateReporting:"",state:"UP",remarks:""},
+  {id:16,sno:16,name:"Amit Kumar",father:"Ram Vir Singh",gender:"Male",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8207",date:"2026-01-21"}],incentive:"0",dateAdmission:"2026-01-21",dateReporting:"",state:"UP",remarks:""},
+  {id:17,sno:17,name:"Ankit Kumar",father:"Prabhdeep Kumar",gender:"Male",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8208",date:"2026-01-21"}],incentive:"0",dateAdmission:"2026-01-21",dateReporting:"",state:"UP",remarks:""},
+  {id:18,sno:18,name:"Kritika Tomar",father:"Bhim Singh",gender:"Female",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8205",date:"2026-01-27"}],incentive:"0",dateAdmission:"2026-01-27",dateReporting:"",state:"UP",remarks:""},
+  {id:19,sno:19,name:"Rewa Singh",father:"Harendra Singh",gender:"Female",course:"B.Sc (Optometry LEET)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"8206",date:"2026-01-27"}],incentive:"0",dateAdmission:"2026-01-27",dateReporting:"",state:"UP",remarks:""},
+  {id:20,sno:20,name:"Harmandeep Kaur",father:"Dilbag Singh",gender:"Female",course:"ANM",contact:"82848-98914",consultant:"College Dekho",staff:"College Dekho",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"UPI",receiptNo:"1401",date:"2026-01-30"}],incentive:"0",dateAdmission:"2026-01-30",dateReporting:"",state:"Punjab",remarks:""},
+  {id:21,sno:21,name:"Tamanna Nisha Khan",father:"Naim Khan",gender:"Female",course:"B.Sc (AT/OT)",contact:"62641-44005",consultant:"College Dekho",staff:"College Dekho",attending:"Yes",attendType:"Hostel",hostelType:"Girls Hostel",scholarship:"No",receipts:[{amount:"5000",mode:"Cash",receiptNo:"",date:"2026-01-30"}],incentive:"0",dateAdmission:"2026-01-30",dateReporting:"",state:"Punjab",remarks:""},
+  {id:22,sno:22,name:"Jeet Lal",father:"Bhagwant Parshad",gender:"Male",course:"D.Pharmacy",contact:"98772-12021",consultant:"College Dekho",staff:"College Dekho",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"Cash",receiptNo:"",date:"2026-02-04"}],incentive:"0",dateAdmission:"2026-02-04",dateReporting:"",state:"Punjab",remarks:""},
+  {id:23,sno:23,name:"Sajid Hussain Dar",father:"Gulam Mohammad Dar",gender:"Male",course:"B.Sc (Optometry)",contact:"",consultant:"Sameer",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"4000",mode:"UPI",receiptNo:"2901",date:"2026-02-11"},{amount:"21000",mode:"Cash",receiptNo:"2902",date:"2026-02-11"}],incentive:"20,000/-",dateAdmission:"2026-02-06",dateReporting:"",state:"J&K",remarks:"1000/- pending towards Vishal"},
+  {id:24,sno:24,name:"Sandeep Kaur",father:"Raj Singh",gender:"Female",course:"GNM",contact:"",consultant:"Sarabjeet Maam",staff:"Sarabjeet Singh",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[],incentive:"",dateAdmission:"2026-02-07",dateReporting:"",state:"Punjab",remarks:""},
+  {id:25,sno:25,name:"Simran Kaur",father:"Gursewak Singh",gender:"Female",course:"ANM",contact:"73476-69810",consultant:"Direct",staff:"Direct",attending:"Yes",attendType:"Day Scholar",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"Cash",receiptNo:"",date:"2026-02-27"}],incentive:"NA",dateAdmission:"2026-02-27",dateReporting:"",state:"Punjab",remarks:""},
+  {id:26,sno:26,name:"Sadam Hussain",father:"Bashir Ahmed Naik",gender:"Male",course:"B.Sc (Medical Lab Sciences LEET)",contact:"",consultant:"Zahoor Adesh",staff:"Vishal",attending:"No",attendType:"",hostelType:"",scholarship:"No",receipts:[{amount:"25000",mode:"UPI",receiptNo:"1333",date:"2026-03-02"},{amount:"20000",mode:"Cash",receiptNo:"1334",date:"2026-03-02"}],incentive:"20,000/-",dateAdmission:"2026-03-02",dateReporting:"",state:"J&K",remarks:"Annual pkg 35,000/-"},
+  {id:27,sno:27,name:"Amandeep Singh",father:"Gursewak Singh",gender:"Male",course:"GNM",contact:"73476-95430",consultant:"Direct",staff:"Direct",attending:"Yes",attendType:"Day Scholar",hostelType:"",scholarship:"No",receipts:[{amount:"5000",mode:"Cash",receiptNo:"",date:"2026-03-06"}],incentive:"NA",dateAdmission:"2026-03-06",dateReporting:"",state:"Punjab",remarks:""},
+  {id:28,sno:28,name:"Adnan Ahmed",father:"Naseer Ahmed",gender:"Male",course:"B.Sc (Radiology)",contact:"",consultant:"Atif",staff:"Sarabjeet Singh/Gopi",attending:"Yes",attendType:"Hostel",hostelType:"Boys Hostel",scholarship:"Yes",receipts:[{amount:"5000",mode:"Cash",receiptNo:"",date:"2026-03-07"}],incentive:"5,000/-",dateAdmission:"2026-03-07",dateReporting:"",state:"J&K",remarks:"Advance incentive to be adjusted at end of session"},
+];
+let nextId=29, filtered=[...students], sortState={col:'sno',dir:1};
+let colFilterSets={}, editId=null, delId=null, newCT='text';
+let openFilterCol=null;
+
+// ── STORAGE ──
+function save(){
+  // Save to Firebase
+  if(window._fbReady){
+    const obj={};
+    students.forEach(s=>obj['s'+s.id]=s);
+    window._fbSet('students', obj);
+    window._fbSet('columns', columns);
+  }
+  // Also keep localStorage as backup
+  try{localStorage.setItem('grd3_s',JSON.stringify(students));localStorage.setItem('grd3_c',JSON.stringify(columns));}catch(e){}
+}
+const COURSE_LIST = ['D.Pharmacy','B.Pharmacy','Pharm.D','B.Sc (Radiology)','B.Sc (Medical Lab Sciences)','B.Sc (AT/OT)','B.Sc (Dialysis Technology)','B.Sc (Optometry)','B.Sc (Radiology LEET)','B.Sc (Medical Lab Sciences LEET)','B.Sc (AT/OT LEET)','B.Sc (Dialysis Technology LEET)','B.Sc (Optometry LEET)','ANM','GNM','BA (Computer Science)','B.Sc (Information Technology)','BA (Open)','MA (Open)','B.Ed'];
+
+function load(){
+  // Firebase listener handles real-time loading
+  // localStorage used only as initial fallback
+  try{
+    const s=localStorage.getItem('grd3_s');
+    if(s) students=JSON.parse(s);
+    const savedCols=localStorage.getItem('grd3_c');
+    if(savedCols){
+      const sc=JSON.parse(savedCols);
+      const customCols=sc.filter(c=>!c.builtin);
+      columns=columns.map(bc=>{
+        const saved=sc.find(c=>c.id===bc.id);
+        return saved ? {...bc,...saved} : bc;
+      });
+      columns=[...columns,...customCols];
+    }
+    if(students.length>0) nextId=Math.max(...students.map(x=>x.id),28)+1;
+  }catch(e){ console.error('Load error:',e); }
+  // Always force latest course list regardless of what localStorage has
+  const courseCol = columns.find(c=>c.id==='course');
+  if(courseCol) courseCol.options = COURSE_LIST;
+}
+
+// ════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════
+function renderDash(){
+  renderCourseFilters();
+  const t=students.length;
+  if(!t){document.getElementById('statsRow').innerHTML='';return;}
+  const attending=students.filter(s=>s.attending?.toLowerCase()==='yes');
+  const nonAtt=students.filter(s=>s.attending?.toLowerCase()!=='yes');
+  const attCount=attending.length, nonAttCount=nonAtt.length;
+  const dayScholar=attending.filter(s=>s.attendType==='Day Scholar').length;
+  const hostelAll=attending.filter(s=>s.attendType==='Hostel');
+  const boysH=hostelAll.filter(s=>s.hostelType==='Boys Hostel').length;
+  const girlsH=hostelAll.filter(s=>s.hostelType==='Girls Hostel').length;
+  const scholarship=students.filter(s=>s.scholarship?.toLowerCase()==='yes').length;
+  const withInc=students.filter(s=>s.incentive&&s.incentive!=='0'&&s.incentive!==''&&s.incentive!=='NA').length;
+  const states=[...new Set(students.map(s=>s.state).filter(Boolean))].length;
+  const males=students.filter(s=>s.gender==='Male').length;
+  const females=students.filter(s=>s.gender==='Female').length;
+  const totalFee=students.reduce((a,s)=>a+(s.receipts||[]).reduce((b,r)=>b+(parseFloat(r.amount)||0),0),0);
+
+  const cards=[
+    {label:'Total Students',val:t,          sub:'Session 2026-27',                               col:'sc-blue'},
+    {label:'Attending',     val:attCount,    sub:t?Math.round(attCount/t*100)+'% of total':'',   col:'sc-green'},
+    {label:'Non-Attending', val:nonAttCount, sub:t?Math.round(nonAttCount/t*100)+'% of total':'',col:'sc-red'},
+    {label:'Day Scholars',  val:dayScholar,  sub:'Attending only',                                col:'sc-cyan'},
+    {label:'Boys Hostel',   val:boysH,       sub:'Hostel (Boys)',                                 col:'sc-blue'},
+    {label:'Girls Hostel',  val:girlsH,      sub:'Hostel (Girls)',                                col:'sc-pink'},
+    {label:'Scholarship',   val:scholarship, sub:t?Math.round(scholarship/t*100)+'% of total':'',col:'sc-orange'},
+    {label:'Male',          val:males,       sub:t?Math.round(males/t*100)+'% of total':'',       col:'sc-purple'},
+    {label:'Female',        val:females,     sub:t?Math.round(females/t*100)+'% of total':'',     col:'sc-pink'},
+    {label:'States',        val:states,      sub:'Geographic spread',                             col:'sc-yellow'},
+  ];
+  document.getElementById('statsRow').innerHTML=cards.map(c=>`
+    <div class="stat-card ${c.col}">
+      <div class="sc-label">${c.label}</div>
+      <div class="sc-value">${c.val}</div>
+      <div class="sc-meta">${c.sub}</div>
+    </div>`).join('');
+}
+
+function getUniqueVals(colId){
+  const col=columns.find(c=>c.id===colId);
+  const vals=new Set();
+  students.forEach(s=>{
+    if(colId==='receipts'){
+      (s.receipts||[]).forEach(r=>vals.add(r.mode));
+    } else {
+      const v=String(s[colId]||'').trim();
+      if(v) vals.add(v);
+    }
+  });
+  return [...vals].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+}
+
+function buildFilterPanel(col){
+  const colId=col.id;
+  const vals=getUniqueVals(colId);
+  const selected=colFilterSets[colId]||null; // null = all selected
+  const allSelected=!selected;
+  return `
+    <div class="flt-panel" id="flt_${colId}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px"><span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">${col.label}</span><span id="fltbadge_${colId}" style="font-size:10px;color:var(--blue);font-weight:700;display:none"></span></div>
+      <input class="flt-search" placeholder="Search values…" oninput="filterPanelSearch('${colId}',this.value)">
+      <div class="flt-list" id="fltlist_${colId}">
+        <div class="flt-selall" onclick="handleSelectAll(event,'${colId}')">
+          <input type="checkbox" id="fltall_${colId}" ${allSelected?'checked':''}>
+          <label>(Select All)</label>
+        </div>
+        ${vals.map(v=>`
+          <div class="flt-item">
+            <input type="checkbox" id="fltv_${colId}_${CSS.escape(v)}" value="${v}" ${allSelected||selected?.has(v)?'checked':''} onchange="panelCheckChange('${colId}');liveApplyFilter('${colId}')">
+            <label for="fltv_${colId}_${CSS.escape(v)}">${v||'(blank)'}</label>
+          </div>`).join('')}
+      </div>
+      <div class="flt-actions">
+        <button class="flt-clear" onclick="clearColFilter('${colId}')">Clear</button>
+        <button class="flt-apply" onclick="applyColFilter('${colId}')">Apply</button>
+      </div>
+    </div>`;
+}
+
+function openFilterPanel(colId, event){
+  event.stopPropagation();
+  // Close any open panel
+  if(openFilterCol && openFilterCol!==colId){
+    document.getElementById('flt_'+openFilterCol)?.classList.remove('open');
+  }
+  const panel=document.getElementById('flt_'+colId);
+  if(!panel) return;
+  if(panel.classList.contains('open')){
+    panel.classList.remove('open');
+    openFilterCol=null;
+  } else {
+    panel.classList.add('open');
+    openFilterCol=colId;
+    panel.querySelector('.flt-search')?.focus();
+  }
+}
+
+function filterPanelSearch(colId, q){
+  const list=document.getElementById('fltlist_'+colId);
+  if(!list) return;
+  list.querySelectorAll('.flt-item').forEach(item=>{
+    const lbl=item.querySelector('label')?.textContent||'';
+    item.style.display=lbl.toLowerCase().includes(q.toLowerCase())?'':'none';
+  });
+}
+
+function handleSelectAll(e, colId){
+  // Stop propagation so panel doesn't close
+  e.stopPropagation();
+  const allCb = document.getElementById('fltall_'+colId);
+  // If click was on the checkbox itself, its state already toggled — use that
+  // If click was on the div/label, manually toggle
+  let newState;
+  if(e.target === allCb){
+    newState = allCb.checked; // checkbox already flipped by browser
+  } else {
+    newState = !allCb.checked;
+    allCb.checked = newState;
+  }
+  const list = document.getElementById('fltlist_'+colId);
+  list.querySelectorAll('.flt-item input').forEach(cb => cb.checked = newState);
+}
+function toggleAllInPanel(colId){
+  const allCb=document.getElementById('fltall_'+colId);
+  const list=document.getElementById('fltlist_'+colId);
+  const newState=!allCb.checked;
+  allCb.checked=newState;
+  list.querySelectorAll('.flt-item input').forEach(cb=>cb.checked=newState);
+}
+
+function panelCheckChange(colId){
+  const list=document.getElementById('fltlist_'+colId);
+  const allCb=document.getElementById('fltall_'+colId);
+  const all=list.querySelectorAll('.flt-item input');
+  const checked=list.querySelectorAll('.flt-item input:checked');
+  allCb.checked=all.length===checked.length;
+  allCb.indeterminate=checked.length>0&&checked.length<all.length;
+  // Update count badge
+  const badge=document.getElementById('fltbadge_'+colId);
+  if(badge){
+    if(all.length===checked.length){badge.textContent='';badge.style.display='none';}
+    else{badge.textContent=checked.length+' selected';badge.style.display='';}
+  }
+}
+function liveApplyFilter(colId){
+  const list=document.getElementById('fltlist_'+colId);
+  const checked=[...list.querySelectorAll('.flt-item input:checked')].map(cb=>cb.value);
+  const allVals=getUniqueVals(colId);
+  if(checked.length===allVals.length||checked.length===0) delete colFilterSets[colId];
+  else colFilterSets[colId]=new Set(checked);
+  applyFilters();
+}
+
+function applyColFilter(colId){
+  const list=document.getElementById('fltlist_'+colId);
+  const checked=[...list.querySelectorAll('.flt-item input:checked')].map(cb=>cb.value);
+  const allVals=getUniqueVals(colId);
+  if(checked.length===allVals.length||checked.length===0){
+    delete colFilterSets[colId];
+  } else {
+    colFilterSets[colId]=new Set(checked);
+  }
+  document.getElementById('flt_'+colId)?.classList.remove('open');
+  openFilterCol=null;
+  applyFilters();
+}
+
+function clearColFilter(colId){
+  delete colFilterSets[colId];
+  document.getElementById('flt_'+colId)?.classList.remove('open');
+  openFilterCol=null;
+  applyFilters();
+}
+
+function clearAllFilters(){
+  colFilterSets={};
+  document.getElementById('gSearch').value='';
+  openFilterCol=null;
+  applyFilters();
+}
+
+// Close panel when clicking outside
+document.addEventListener('click',e=>{
+  if(openFilterCol){
+    const panel=document.getElementById('flt_'+openFilterCol);
+    if(panel&&!panel.contains(e.target)){
+      panel.classList.remove('open');
+      openFilterCol=null;
+    }
+  }
+});
+
+// ════════════════════════════════════
+//  FILTER + SORT
+// ════════════════════════════════════
+function applyFilters(){
+  const q=document.getElementById('gSearch').value.toLowerCase();
+  filtered=students.filter(s=>{
+    if(q){
+      const blob=Object.entries(s).map(([k,v])=>{
+        if(k==='receipts') return (v||[]).map(r=>Object.values(r).join(' ')).join(' ');
+        return String(v||'');
+      }).join(' ').toLowerCase();
+      if(!blob.includes(q)) return false;
+    }
+    for(const [colId,sel] of Object.entries(colFilterSets)){
+      if(!sel||!sel.size) continue;
+      if(colId==='receipts'){
+        const modes=(s.receipts||[]).map(r=>r.mode);
+        if(!modes.some(m=>sel.has(m))) return false;
+      } else {
+        const v=String(s[colId]||'').trim();
+        if(!sel.has(v)) return false;
+      }
+    }
+    return true;
+  });
+  // sort
+  filtered.sort((a,b)=>{
+    let av=a[sortState.col]??'', bv=b[sortState.col]??'';
+    const col=columns.find(c=>c.id===sortState.col);
+    if(col?.type==='number'||sortState.col==='sno'){av=parseFloat(av)||0;bv=parseFloat(bv)||0;}
+    if(av<bv) return -sortState.dir; if(av>bv) return sortState.dir; return 0;
+  });
+  document.getElementById('rowCount').textContent=`(${filtered.length}/${students.length})`;
+  // Update fee summary bar from FILTERED students
+  let fsTotal=0, fsCollege=0, fsIncentive=0;
+  filtered.forEach(s=>(s.receipts||[]).forEach(r=>{
+    const a=parseFloat(r.amount)||0;
+    fsTotal+=a;
+    if(r.payType==='Incentive') fsIncentive+=a; else fsCollege+=a;
+  }));
+  const fmt=n=>'₹'+n.toLocaleString('en-IN');
+  const e1=document.getElementById('fsTotalFee');
+  const e2=document.getElementById('fsCollegeFee');
+  const e3=document.getElementById('fsIncentiveFee');
+  if(e1) e1.textContent=fmt(fsTotal);
+  if(e2) e2.textContent=fmt(fsCollege);
+  if(e3) e3.textContent=fmt(fsIncentive);
+  const fNote=document.getElementById('fsFilterNote');
+  if(fNote){const isF=filtered.length!==students.length;fNote.textContent=isF?'Showing '+filtered.length+' of '+students.length+' students (filtered)':'All students';}
+  const hasFlt=Object.keys(colFilterSets).length>0||document.getElementById('gSearch').value;
+  document.getElementById('clearFltBtn').style.display=hasFlt?'':'none';
+  renderHeader();
+  renderBody();
+  renderPills();
+}
+
+function doSort(colId){
+  if(sortState.col===colId)sortState.dir*=-1;else{sortState.col=colId;sortState.dir=1;}
+  applyFilters();
+}
+
+// ════════════════════════════════════
+//  RENDER HEADER
+// ════════════════════════════════════
+function renderHeader(){
+  const visCols=columns.filter(c=>c.visible);
+  let html='<tr>';
+  visCols.forEach(col=>{
+    const isFiltered=colFilterSets[col.id]?.size>0;
+    const isSorted=sortState.col===col.id;
+    const sic=isSorted?(sortState.dir===1?'asc':'desc'):'';
+    html+=`<th id="TH_${col.id}" class="${isFiltered?'filtered':''}">
+      <div class="th-wrap">
+        <div class="th-top">
+          <span class="th-lbl" id="THL_${col.id}" onclick="doSort('${col.id}')" ondblclick="startRename('${col.id}')" title="Click to sort · Double-click to rename">${col.label}</span>
+          <span class="sort-ic ${sic}">${isSorted?(sortState.dir===1?'↑':'↓'):'↕'}</span>
+          <button class="flt-btn ${isFiltered?'active':''}" onclick="openFilterPanel('${col.id}',event)" title="Filter">${isFiltered?'▾●':'▾'}</button>
+        </div>
+        ${buildFilterPanel(col)}
+      </div>
+    </th>`;
+  });
+  html+='<th class="add-col-th"><div class="th-wrap"><div class="th-top"><div class="add-col-btn" onclick="addColumn()" title="Add column">+</div></div></div></th>';
+  html+='</tr>';
+  document.getElementById('thead').innerHTML=html;
+}
+
+// ════════════════════════════════════
+//  RENDER BODY
+// ════════════════════════════════════
+function fmtD(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'});}catch(e){return d;}}
+function yn(v){const y=(v||'').toLowerCase()==='yes';return`<span class="badge ${y?'b-yes':'b-no'}">${y?'✓ Yes':'No'}</span>`;}
+function stateBadge(v){const m={Punjab:'b-punjab','J&K':'b-jk',UP:'b-up'};return v?`<span class="badge ${m[v]||'b-state'}">${v}</span>`:'—';}
+function modeC(m){return{UPI:'m-upi',Cash:'m-cash',Cheque:'m-cheque',DD:'m-dd',NEFT:'m-neft',RTGS:'m-rtgs'}[m]||'';}
+function recTotal(rs){return(rs||[]).reduce((a,r)=>a+(parseFloat(r.amount)||0),0);}
+
+function cellVal(col,s){
+  const v=s[col.id];
+  if(col.id==='sno') return `<span class="mono" style="color:var(--blue2);font-weight:700;font-size:13px">${s.sno}</span>`;
+  if(col.id==='name') return `<div class="td-name">${v||'—'}</div><div class="td-sub">s/o ${s.father||'—'}</div>`;
+  if(col.id==='father') return `<span style="font-size:12px">${v||'—'}</span>`;
+  if(col.id==='gender') return v?`<span class="badge ${v==='Male'?'b-m':'b-f'}">${v==='Male'?'♂ Male':'♀ Female'}</span>`:'—';
+  if(col.id==='course') return `<span class="badge b-course">${v||'—'}</span>`;
+  if(col.id==='contact') return `<span class="mono" style="color:var(--cyan)">${v||'—'}</span>`;
+  if(col.id==='attending'||col.id==='scholarship') return yn(v);
+  if(col.id==='attendType'){
+    if(!v) return '<span style="color:var(--text-dim);font-size:11px">—</span>';
+    const c=v==='Hostel'?'var(--purple)':v==='Day Scholar'?'var(--cyan)':'var(--text-muted)';
+    return `<span style="font-size:12px;color:${c};font-weight:600">${v}</span>`;
+  }
+  if(col.id==='hostelType'){
+    if(!v) return '<span style="color:var(--text-dim);font-size:11px">—</span>';
+    const c=v==='Boys Hostel'?'var(--blue)':'var(--pink)';
+    return `<span style="font-size:12px;color:${c};font-weight:600">${v}</span>`;
+  }
+  if(col.type==='yesno') return yn(v);
+  if(col.id==='state') return stateBadge(v);
+  if(col.type==='date'||col.id==='dateAdmission'||col.id==='dateReporting') return `<span class="mono">${fmtD(v)}</span>`;
+  if(col.id==='receipts'){
+    const rs=v||[];
+    if(!rs.length) return '<span style="color:var(--text-dim);font-size:11px">No receipts</span>';
+    const tot=recTotal(rs);
+    const college=rs.filter(r=>r.payType!=='Incentive').reduce((a,r)=>a+(parseFloat(r.amount)||0),0);
+    const incAmt=rs.filter(r=>r.payType==='Incentive').reduce((a,r)=>a+(parseFloat(r.amount)||0),0);
+    return `<div class="rec-list">${rs.map(r=>`<div class="rec-pill"><span style="color:${r.payType==='Incentive'?'var(--orange)':'var(--cyan)'}">${r.payType==='Incentive'?'💰':'🏫'}</span><span class="${modeC(r.mode)}">${r.mode}</span><span style="font-family:var(--mono)">₹${Number(r.amount||0).toLocaleString('en-IN')}</span>${r.receiptNo?`<span style="color:var(--text-muted)">#${r.receiptNo}</span>`:''}</div>`).join('')}<div style="font-size:10px;font-family:var(--mono);text-align:right;margin-top:2px;display:flex;gap:8px;justify-content:flex-end">${college>0?`<span style="color:var(--cyan)">🏫₹${college.toLocaleString('en-IN')}</span>`:''}${incAmt>0?`<span style="color:var(--orange)">💰₹${incAmt.toLocaleString('en-IN')}</span>`:''}</div></div>`;
+  }
+  if(col.id==='incentive') return v&&v!=='0'&&v!==''?`<span class="badge b-inc">${v}</span>`:'<span style="color:var(--text-dim)">—</span>';
+  return `<span style="font-size:12px">${v||'—'}</span>`;
+}
+
+function renderBody(){
+  const visCols=columns.filter(c=>c.visible);
+  if(!filtered.length){
+    document.getElementById('tbody').innerHTML=`<tr><td colspan="${visCols.length+2}" class="empty-td">🔍 No students match the current filters</td></tr>`;
+    return;
+  }
+  document.getElementById('tbody').innerHTML=filtered.map((s,i)=>`
+    <tr onclick="viewStudent(${s.id})">
+      ${visCols.map(col=>`<td>${cellVal(col,s)}</td>`).join('')}
+      <td onclick="event.stopPropagation()">
+        <div style="display:flex;gap:4px;justify-content:center">
+          <button class="btn btn-ghost btn-xs" onclick="openEdit(${s.id})">✏</button>
+          <button class="btn btn-xs" style="background:var(--red-g);color:var(--red);border:1px solid rgba(242,92,92,.2)" onclick="openDel(${s.id})">🗑</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+// ════════════════════════════════════
+//  PILLS
+// ════════════════════════════════════
+function renderPills(){
+  const pills=document.getElementById('pillRow');
+  let html='';
+  Object.entries(colFilterSets).forEach(([colId,sel])=>{
+    if(!sel?.size) return;
+    const col=columns.find(c=>c.id===colId);
+    const vals=[...sel].slice(0,3).join(', ')+(sel.size>3?` +${sel.size-3}`:'');
+    html+=`<div class="pill">${col?.label||colId}: <strong>${vals}</strong><button onclick="clearColFilter('${colId}')">×</button></div>`;
+  });
+  pills.innerHTML=html;
+}
+
+// ════════════════════════════════════
+//  FORM: ADD/EDIT
+// ════════════════════════════════════
+let recCount=0;
+function buildForm(s){
+  const val=(id,def='')=>s?s[id]??def:def;
+  const sel=(id,v)=>v===val(id)?'selected':'';
+  const chk=(id)=>val(id,'')==='Yes'?'selected':'';
+
+  // attendance type logic
+  const att=val('attending','No');
+  const attT=val('attendType','');
+  const hostelT=val('hostelType','');
+  const gender=val('gender','Male');
+
+  let html=`<div class="fgrid">
+    <div class="fg"><label>Student Name *</label><input type="text" id="ff_name" value="${val('name')}" placeholder="Full name"></div>
+    <div class="fg"><label>Father's Name</label><input type="text" id="ff_father" value="${val('father')}" placeholder="Father's full name"></div>
+    <div class="fg"><label>Gender *</label>
+      <div class="radio-group">
+        <label class="radio-btn ${gender==='Male'?'sel':''}" onclick="setGender('Male',this)"><input type="radio" name="gender" value="Male" ${gender==='Male'?'checked':''}>♂ Male</label>
+        <label class="radio-btn ${gender==='Female'?'sel':''}" onclick="setGender('Female',this)"><input type="radio" name="gender" value="Female" ${gender==='Female'?'checked':''}>♀ Female</label>
+      </div>
+    </div>
+    <div class="fg"><label>Course</label>
+      <select id="ff_course"><option value="">Select…</option>${columns.find(c=>c.id==='course').options.map(o=>`<option ${val('course')===o?'selected':''}>${o}</option>`).join('')}</select>
+    </div>
+    <div class="fg"><label>Contact No.</label><input type="text" id="ff_contact" value="${val('contact')}" placeholder="e.g. 98765-43210"></div>
+    <div class="fg"><label>Consultant</label><div class="ac-wrap">
+      <input type="text" id="ff_consultant" value="${val('consultant')}" placeholder="Consultant / source" autocomplete="off" oninput="acShow('ff_consultant','consultant')" onkeydown="acKey(event,'ff_consultant')" onblur="acHide('ff_consultant')">
+      <div class="ac-list" id="ac_ff_consultant"></div>
+    </div></div>
+    <div class="fg"><label>Staff Referred</label><div class="ac-wrap">
+      <input type="text" id="ff_staff" value="${val('staff')}" placeholder="Staff name" autocomplete="off" oninput="acShow('ff_staff','staff')" onkeydown="acKey(event,'ff_staff')" onblur="acHide('ff_staff')">
+      <div class="ac-list" id="ac_ff_staff"></div>
+    </div></div>
+    <div class="fg"><label>State</label>
+      <select id="ff_state" onchange="onStateChange(this)"><option value="">Select State…</option>${INDIA_STATES.map(o=>`<option ${val('state')===o?'selected':''}>${o}</option>`).join('')}</select>
+    </div>
+    <div class="fg" id="districtFg"><label>District</label>
+      <select id="ff_district" ${!val('state')?'disabled':''}><option value="">Select District…</option>${getDistricts(val('state')).map(d=>`<option ${val('district')===d?'selected':''}>${d}</option>`).join('')}</select>
+    </div>
+    <div class="fg"><label>Scholarship</label>
+      <div class="radio-group">
+        <label class="radio-btn ${val('scholarship','No')==='Yes'?'sel':''}" onclick="setRadio('scholarship','Yes',this)"><input type="radio" name="scholarship" value="Yes" ${val('scholarship')==='Yes'?'checked':''}>✅ Yes</label>
+        <label class="radio-btn ${val('scholarship','No')!=='Yes'?'sel':''}" onclick="setRadio('scholarship','No',this)"><input type="radio" name="scholarship" value="No" ${val('scholarship')!=='Yes'?'checked':''}>✗ No</label>
+      </div>
+    </div>
+    <div class="fg"><label>Date of Admission</label><input type="date" id="ff_dateAdmission" value="${val('dateAdmission')}"></div>
+    <div class="fg"><label>Date of Reporting</label><input type="date" id="ff_dateReporting" value="${val('dateReporting')}"></div>
+  </div>
+
+  <div class="sec-title">🏫 Attendance Details</div>
+  <div class="fgrid">
+    <div class="fg"><label>Is Student Attending?</label>
+      <div class="radio-group">
+        <label class="radio-btn ${att==='Yes'?'sel':''}" onclick="setAttending('Yes',this)">✅ Attending</label>
+        <label class="radio-btn ${att==='No'||att===''?'sel':''}" onclick="setAttending('No',this)">✗ Non-Attending</label>
+      </div>
+    </div>
+    <div class="fg" id="attTypeWrap" style="${att==='Yes'?'':'opacity:.4;pointer-events:none'}">
+      <label>Day Scholar or Hostel?</label>
+      <div class="radio-group">
+        <label class="radio-btn ${attT==='Day Scholar'?'sel':''}" onclick="setAttendType('Day Scholar',this)">🌤 Day Scholar</label>
+        <label class="radio-btn ${attT==='Hostel'?'sel':''}" onclick="setAttendType('Hostel',this)">🏠 Hostel</label>
+      </div>
+    </div>
+  </div>
+  <div id="hostelWrap" style="${att==='Yes'&&attT==='Hostel'?'':'display:none'}">
+    <div class="cond-section">
+      <div class="fg"><label>Hostel Type (auto-set from gender)</label>
+        <input type="text" id="ff_hostelType" value="${hostelT}" readonly style="opacity:.6;cursor:default" placeholder="Will be set automatically based on gender">
+      </div>
+    </div>
+  </div>
+
+  <div class="sec-title">💳 Payment Receipts</div>
+  <div class="recs-area" id="recsArea"></div>
+  <button class="add-rec-btn" onclick="addRecRow()">＋ Add Receipt</button>
+  <div class="rec-total" id="recTotal" style="display:none"></div>
+
+  <div class="fg full" style="margin-top:14px"><label>Incentive Paid</label><input type="text" id="ff_incentive" value="${val('incentive')}" placeholder="e.g. 30,000/- or NA"></div>
+  <div class="fg full"><label>Remarks</label><textarea id="ff_remarks">${val('remarks')}</textarea></div>`;
+
+  // custom columns
+  const customCols=columns.filter(c=>!c.builtin&&c.visible);
+  if(customCols.length){
+    html+=`<div class="sec-title">📋 Additional Fields</div><div class="fgrid">`;
+    customCols.forEach(col=>{
+      html+=`<div class="fg"><label>${col.label}</label>`;
+      if(col.type==='yesno')html+=`<select id="ff_${col.id}"><option value="No" ${val(col.id)!=='Yes'?'selected':''}>No</option><option value="Yes" ${val(col.id)==='Yes'?'selected':''}>Yes</option></select>`;
+      else if(col.type==='select'&&col.options)html+=`<select id="ff_${col.id}"><option value="">Select…</option>${col.options.map(o=>`<option ${val(col.id)===o?'selected':''}>${o}</option>`).join('')}</select>`;
+      else if(col.type==='date')html+=`<input type="date" id="ff_${col.id}" value="${val(col.id)}">`;
+      else html+=`<input type="text" id="ff_${col.id}" value="${val(col.id)}" placeholder="${col.label}">`;
+      html+=`</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  document.getElementById('formBd').innerHTML=html;
+  recCount=0;
+  (s?.receipts||[]).forEach(r=>addRecRow(r));
+  if(!(s?.receipts?.length)) addRecRow();
+  updateRecTotal();
+}
+
+function setGender(v,el){
+  el.closest('.radio-group').querySelectorAll('.radio-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  updateHostelType();
+}
+function setRadio(name,v,el){
+  el.closest('.radio-group').querySelectorAll('.radio-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function setAttending(v,el){
+  el.closest('.radio-group').querySelectorAll('.radio-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  const isAtt=v==='Yes';
+  const wrap=document.getElementById('attTypeWrap');
+  if(wrap){wrap.style.opacity=isAtt?'1':'0.4';wrap.style.pointerEvents=isAtt?'':'none';}
+  if(!isAtt){document.getElementById('hostelWrap').style.display='none';}
+}
+function setAttendType(v,el){
+  el.closest('.radio-group').querySelectorAll('.radio-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('hostelWrap').style.display=v==='Hostel'?'':'none';
+  if(v==='Hostel') updateHostelType();
+}
+function updateHostelType(){
+  const gender=document.querySelector('[name=gender]:checked')?.value||'Male';
+  const ht=gender==='Female'?'Girls Hostel':'Boys Hostel';
+  const el=document.getElementById('ff_hostelType');
+  if(el) el.value=ht;
+}
+
+// Decorate radio buttons with data attrs after render
+function decorateAttendanceBtns(){
+  const attBtns=document.querySelectorAll('#formBd .radio-btn');
+  // Already handled via inline onclick
+}
+
+function addRecRow(data=null){
+  recCount++;
+  const rid=`rec_${recCount}`;
+  const div=document.createElement('div');
+  div.className='rec-row'; div.id=rid;
+  div.innerHTML=`<div class="rec-grid">
+    <div class="fg" style="margin:0"><label>Amount (₹)</label><input type="text" id="${rid}_amt" value="${data?.amount||''}" placeholder="5000" oninput="updateRecTotal()"></div>
+    <div class="fg" style="margin:0"><label>Payment Mode</label>
+      <select id="${rid}_mode">${['UPI','Cash','Cheque','DD','NEFT','RTGS'].map(m=>`<option ${data?.mode===m?'selected':''}>${m}</option>`).join('')}</select>
+    </div>
+    <div class="fg" style="margin:0"><label>Payment Type</label>
+      <select id="${rid}_type" onchange="updateRecTotal()" style="border-color:${data?.payType==='Incentive'?'var(--orange)':'var(--border2)'}"><option value="In College" ${(!data?.payType||data?.payType==='In College')?'selected':''}>🏫 In College</option><option value="Incentive" ${data?.payType==='Incentive'?'selected':''}>💰 Incentive</option></select>
+    </div>
+    <div class="fg" style="margin:0"><label>Receipt No.</label><input type="text" id="${rid}_no" value="${data?.receiptNo||''}" placeholder="e.g. 10601"></div>
+    <div class="fg" style="margin:0"><label>Receipt Date</label><input type="date" id="${rid}_date" value="${data?.date||''}"></div>
+    <button class="rec-del" onclick="this.closest('.rec-row').remove();updateRecTotal()">✕</button>
+  </div>`;
+  document.getElementById('recsArea').appendChild(div);
+}
+function updateRecTotal(){
+  let tot=0,college=0,incentive=0;
+  document.querySelectorAll('.rec-row').forEach(row=>{
+    const a=parseFloat(document.getElementById(row.id+'_amt')?.value)||0;
+    const t=document.getElementById(row.id+'_type')?.value||'In College';
+    tot+=a;
+    if(t==='Incentive') incentive+=a; else college+=a;
+    // color the select border
+    const sel=document.getElementById(row.id+'_type');
+    if(sel) sel.style.borderColor=t==='Incentive'?'var(--orange)':'var(--border2)';
+  });
+  const el=document.getElementById('recTotal');
+  if(el){
+    el.style.display=tot>0?'':'none';
+    el.innerHTML=`<span style="color:var(--text-muted)">Total: <span style="color:var(--text);font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700">₹${tot.toLocaleString('en-IN')}</span></span><span style="color:var(--text-muted)">🏫 In College: <span style="color:var(--cyan);font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700">₹${college.toLocaleString('en-IN')}</span></span><span style="color:var(--text-muted)">💰 Incentive: <span style="color:var(--orange);font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700">₹${incentive.toLocaleString('en-IN')}</span></span>`;
+  }
+}
+
+function openAdd(){
+  editId=null;recCount=0;
+  document.getElementById('formTitle').textContent='Add New Student';
+  buildForm(null);
+  openModal('formOv');
+}
+function openEdit(id){
+  editId=id;recCount=0;
+  const s=students.find(x=>x.id===id);if(!s)return;
+  document.getElementById('formTitle').textContent='Edit — '+s.name;
+  buildForm(s);
+  openModal('formOv');
+}
+
+function saveStudent(){
+  const name=document.getElementById('ff_name')?.value.trim();
+  if(!name){toast('Student name is required','err');return;}
+  // collect gender
+  const gender=document.querySelector('[name=gender]:checked')?.value||'Male';
+  // collect attending
+  const attBtns=[...document.querySelectorAll('#formBd .radio-group')];
+  // simpler: read from visual state
+  const attSel=[...document.querySelectorAll('#formBd .radio-btn.sel')];
+  let attending='No', attendType='', hostelType='';
+  // find attending row
+  const attRow=document.getElementById('attTypeWrap');
+  const attActive=attRow&&attRow.style.opacity!=='0.4'&&attRow.style.pointerEvents!=='none';
+  // Check which attending radio is selected by looking at bold sel class
+  // We'll use a hidden approach - check hostelWrap
+  const hostelVisible=document.getElementById('hostelWrap')?.style.display!=='none';
+  // Read attending from first radio-group that has sel
+  document.querySelectorAll('#formBd .radio-group').forEach(rg=>{
+    const selBtn=rg.querySelector('.radio-btn.sel');
+    if(!selBtn) return;
+    const txt=selBtn.textContent.trim();
+    if(txt==='✅ Attending'||txt==='✗ Non-Attending'){
+      attending=txt.includes('Attending')&&!txt.includes('Non')?'Yes':'No';
+    }
+    if(txt==='🌤 Day Scholar'||txt==='🏠 Hostel') attendType=txt.includes('Day')?'Day Scholar':'Hostel';
+  });
+  if(attending==='Yes'&&attendType==='Hostel'){
+    hostelType=gender==='Female'?'Girls Hostel':'Boys Hostel';
+  }
+  const scholarship=document.querySelector('[name=scholarship]:checked')?.value||'No';
+  const data={
+    name,father:G('ff_father'),gender,course:G('ff_course'),contact:G('ff_contact'),
+    consultant:G('ff_consultant'),staff:G('ff_staff'),state:G('ff_state'),
+    attending,attendType,hostelType,scholarship,
+    dateAdmission:G('ff_dateAdmission'),dateReporting:G('ff_dateReporting'),
+    district:G('ff_district'),incentive:G('ff_incentive'),remarks:G('ff_remarks'),
+  };
+  // receipts
+  const recs=[];
+  document.querySelectorAll('.rec-row').forEach(row=>{
+    const amt=document.getElementById(row.id+'_amt')?.value.trim();
+    if(amt) recs.push({amount:amt,mode:document.getElementById(row.id+'_mode')?.value||'Cash',payType:document.getElementById(row.id+'_type')?.value||'In College',receiptNo:document.getElementById(row.id+'_no')?.value.trim()||'',date:document.getElementById(row.id+'_date')?.value||''});
+  });
+  data.receipts=recs;
+  // custom cols
+  columns.filter(c=>!c.builtin).forEach(col=>{const el=document.getElementById('ff_'+col.id);if(el)data[col.id]=el.value;});
+  if(editId){
+    const idx=students.findIndex(x=>x.id===editId);
+    students[idx]={...students[idx],...data};
+    toast('Student updated','ok');
+  } else {
+    students.push({id:nextId++,sno:students.length+1,...data});
+    toast('Student added','ok');
+  }
+  const auditDetail = editId
+    ? 'Course: '+(data.course||'—')+' | State: '+(data.state||'—')+' | Consultant: '+(data.consultant||'—')
+    : 'Course: '+(data.course||'—')+' | State: '+(data.state||'—')+' | Consultant: '+(data.consultant||'—');
+  addAudit(editId?'Edited':'Added', data.name||'Unknown', auditDetail);
+  save();closeModal('formOv');
+  renderDash();applyFilters();
+}
+function G(id){return document.getElementById(id)?.value||'';}
+
+// ════════════════════════════════════
+//  VIEW STUDENT
+// ════════════════════════════════════
+function viewStudent(id){
+  const s=students.find(x=>x.id===id);if(!s)return;
+  document.getElementById('viewTitle').textContent=s.name;
+  const visCols=columns.filter(c=>c.visible&&c.id!=='sno'&&c.id!=='receipts'&&c.id!=='remarks');
+  let html=`<div class="vsec"><div class="vsec-title">Student Information</div><div class="vgrid">
+    ${visCols.map(c=>{
+      let v='—';
+      if(c.id==='gender') v=s.gender?`<span class="badge ${s.gender==='Male'?'b-m':'b-f'}">${s.gender==='Male'?'♂ Male':'♀ Female'}</span>`:'—';
+      else if(c.id==='attending'||c.id==='scholarship') v=yn(s[c.id]);
+      else if(c.id==='state') v=stateBadge(s[c.id]);
+      else if(c.type==='date') v=`<span class="mono">${fmtD(s[c.id])}</span>`;
+      else if(c.id==='course') v=`<span class="badge b-course">${s[c.id]||'—'}</span>`;
+      else v=s[c.id]||'—';
+      return `<div class="vi"><label>${c.label}</label><div class="v">${v}</div></div>`;
+    }).join('')}
+  </div></div>`;
+  const recs=s.receipts||[];
+  if(recs.length){
+    html+=`<div class="vsec"><div class="vsec-title">Receipts — Total ₹${recTotal(recs).toLocaleString('en-IN')}</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+    ${recs.map((r,i)=>`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:9px 12px">
+      <div class="vi"><label>Amount</label><div class="v mono">₹${Number(r.amount||0).toLocaleString('en-IN')}</div></div>
+      <div class="vi"><label>Mode</label><div class="v"><span class="${modeC(r.mode)}">${r.mode||'—'}</span></div></div>
+      <div class="vi"><label>Receipt No.</label><div class="v mono">${r.receiptNo||'—'}</div></div>
+      <div class="vi"><label>Date</label><div class="v mono">${fmtD(r.date)}</div></div>
+    </div>`).join('')}
+    </div></div>`;
+  }
+  if(s.remarks) html+=`<div class="vsec"><div class="vsec-title">Remarks</div><div class="rmk-box">${s.remarks}</div></div>`;
+  document.getElementById('viewBd').innerHTML=html;
+  document.getElementById('viewFt').innerHTML=`<button class="btn btn-ghost" onclick="closeModal('viewOv')">Close</button><button class="btn btn-primary" onclick="closeModal('viewOv');openEdit(${s.id})">✏ Edit</button>`;
+  openModal('viewOv');
+}
+
+// ════════════════════════════════════
+//  RENAME COLUMN (inline)
+// ════════════════════════════════════
+function startRename(colId){
+  const el=document.getElementById('THL_'+colId);if(!el)return;
+  const col=columns.find(c=>c.id===colId);if(!col)return;
+  const inp=document.createElement('input');
+  inp.className='th-lbl-input';inp.value=col.label;
+  inp.style.width=Math.max(70,col.label.length*8)+'px';
+  el.replaceWith(inp);inp.focus();inp.select();
+  const done=()=>{col.label=inp.value.trim()||col.label;save();renderHeader();renderBody();};
+  inp.addEventListener('blur',done);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')inp.blur();if(e.key==='Escape'){inp.value=col.label;inp.blur();}});
+  inp.addEventListener('click',e=>e.stopPropagation());
+}
+
+// ════════════════════════════════════
+//  ADD / MANAGE COLUMNS
+// ════════════════════════════════════
+function addColumn(){newCT='text';document.getElementById('newColName').value='';document.getElementById('ctOptsWrap').style.display='none';document.querySelectorAll('.ctb').forEach((b,i)=>b.classList.toggle('sel',i===0));openModal('addColOv');}
+function selCT(t,el){newCT=t;document.querySelectorAll('.ctb').forEach(b=>b.classList.remove('sel'));el.classList.add('sel');document.getElementById('ctOptsWrap').style.display=t==='select'?'':'';}
+function confirmAddCol(){
+  const name=document.getElementById('newColName').value.trim();
+  if(!name){toast('Enter a column name','err');return;}
+  const id='cx_'+Date.now();
+  const col={id,label:name,type:newCT,builtin:false,visible:true};
+  if(newCT==='select') col.options=document.getElementById('ctOpts').value.split(',').map(s=>s.trim()).filter(Boolean);
+  columns.push(col);students.forEach(s=>s[id]='');
+  save();closeModal('addColOv');toast(`Column "${name}" added`,'ok');renderHeader();renderBody();
+}
+
+let colVisStage = {}; // staging: colId -> bool
+
+function openManageCols(){
+  // init staging from current state
+  colVisStage = {};
+  columns.forEach(col => colVisStage[col.id] = col.visible);
+  renderColGrid();
+  openModal('mgrColOv');
+}
+
+function renderColGrid(){
+  document.getElementById('colList').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" id="colGrid">
+      ${columns.map(col=>`
+      <div style="display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid ${colVisStage[col.id]?'var(--blue)':'var(--border)'};border-radius:7px;padding:8px 11px;cursor:pointer;transition:border-color .15s" onclick="stageToggle('${col.id}')">
+        <input type="checkbox" ${colVisStage[col.id]?'checked':''} style="accent-color:var(--blue);width:15px;height:15px;flex-shrink:0;cursor:pointer" onclick="event.stopPropagation();stageToggle('${col.id}')">
+        <span ondblclick="event.stopPropagation();startRenameInMgr('${col.id}',this)" title="Dbl-click to rename" style="flex:1;font-size:13px;font-weight:600;color:${colVisStage[col.id]?'var(--text)':'var(--text-muted)'}">${col.label}</span>
+        <span style="font-size:9px;color:var(--text-dim);background:var(--border);padding:1px 5px;border-radius:3px">${col.type}</span>
+        ${!col.builtin?`<button onclick="event.stopPropagation();deleteCol('${col.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 2px;border-radius:3px" title="Delete column">🗑</button>`:''}
+      </div>`).join('')}
+    </div>`;
+}
+
+function stageToggle(colId){
+  colVisStage[colId] = !colVisStage[colId];
+  renderColGrid();
+}
+
+function colSelectAll(state){
+  columns.forEach(col => colVisStage[col.id] = state);
+  renderColGrid();
+}
+
+function applyColVisibility(){
+  columns.forEach(col => col.visible = colVisStage[col.id] ?? col.visible);
+  save(); closeModal('mgrColOv'); renderHeader(); renderBody();
+  toast('Column settings applied','ok');
+}
+function startRenameInMgr(colId,el){
+  const col=columns.find(c=>c.id===colId);if(!col)return;
+  const inp=document.createElement('input');
+  inp.type='text';inp.value=col.label;inp.style.cssText='background:var(--surface);border:1px solid var(--blue);border-radius:5px;padding:3px 8px;color:var(--text);font-family:var(--body);font-size:13px;font-weight:600;outline:none;width:200px';
+  el.replaceWith(inp);inp.focus();inp.select();
+  const done=()=>{col.label=inp.value.trim()||col.label;save();openManageCols();renderHeader();renderBody();};
+  inp.addEventListener('blur',done);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')inp.blur();if(e.key==='Escape'){inp.value=col.label;inp.blur();}});
+}
+function toggleVis(colId){const col=columns.find(c=>c.id===colId);if(col){col.visible=!col.visible;save();openManageCols();renderHeader();renderBody();}}
+function deleteCol(colId){if(!confirm('Delete this column and all its data?'))return;columns=columns.filter(c=>c.id!==colId);students.forEach(s=>delete s[colId]);save();openManageCols();renderHeader();renderBody();toast('Column deleted','ok');}
+
+// ════════════════════════════════════
+//  DELETE
+// ════════════════════════════════════
+function openDel(id){delId=id;const s=students.find(x=>x.id===id);document.getElementById('delName').textContent=s?.name||'this student';openModal('delOv');}
+function confirmDel(){const ds=students.find(x=>x.id===delId);students=students.filter(x=>x.id!==delId);save();closeModal('delOv');toast('Deleted','ok');addAudit('Deleted',ds?.name||'Unknown','Course: '+(ds?.course||'—'));renderDash();applyFilters();}
+
+// ════════════════════════════════════
+//  EXPORT
+// ════════════════════════════════════
+function exportCSV(){
+  const visCols=columns.filter(c=>c.visible);
+  const hdr=visCols.map(c=>c.label).join(',');
+  const rows=filtered.map(s=>visCols.map(c=>{
+    if(c.id==='receipts') return`"${(s.receipts||[]).map(r=>`${r.mode} ₹${r.amount} #${r.receiptNo} ${r.date}`).join(' | ')}"`;
+    return`"${String(s[c.id]||'').replace(/"/g,'""')}"`;
+  }).join(','));
+  const csv=[hdr,...rows].join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='GRD_Admissions_2026.csv';a.click();
+  toast('CSV exported','ok');
+}
+
+// ════════════════════════════════════
+//  MODALS
+// ════════════════════════════════════
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function outerClose(e,id){if(e.target.id===id)closeModal(id);}
+
+// ════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════
+function toast(msg,type='ok'){
+  const c=document.getElementById('toasts');
+  const t=document.createElement('div');t.className=`toast ${type}`;
+  t.innerHTML=`${type==='ok'?'✓':'✗'} ${msg}`;c.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(100%)';setTimeout(()=>t.remove(),300);},2200);
+}
+
+// ════════════════════════════════════
+//  INIT
+// ════════════════════════════════════
+load();
+filtered=[...students];
+// Section navigation handled in init block
+
+// ════════════════════════════════════
+//  ANALYTICS ENGINE
+// ════════════════════════════════════
+const CHART_COLORS = [
+  '#4f8ef7','#9d6df7','#34d17e','#f5a623','#30d5e8',
+  '#f472c0','#f25c5c','#fbbf24','#2dd4bf','#fb923c',
+  '#6366f1','#84cc16','#e879f9','#38bdf8','#34d399'
+];
+
+let activeCharts = {};
+
+function destroyChart(id) {
+  if (activeCharts[id]) { activeCharts[id].destroy(); delete activeCharts[id]; }
+}
+
+function mkPie(id, labels, data, colors) {
+  destroyChart(id);
+  const ctx = document.getElementById(id)?.getContext('2d');
+  if (!ctx) return;
+  activeCharts[id] = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors || CHART_COLORS, borderWidth: 2, borderColor: '#131a30' }] },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#5a6e9e', font: { family: 'Arial', size: 11 }, padding: 10, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} (${Math.round(ctx.parsed/ctx.dataset.data.reduce((a,b)=>a+b,0)*100)}%)` } }
+      }
+    }
+  });
+}
+
+function mkBar(id, labels, datasets, opts={}) {
+  destroyChart(id);
+  const ctx = document.getElementById(id)?.getContext('2d');
+  if (!ctx) return;
+  activeCharts[id] = new Chart(ctx, {
+    type: opts.horizontal ? 'bar' : 'bar',
+    data: { labels, datasets },
+    options: {
+      indexAxis: opts.horizontal ? 'y' : 'x',
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { display: opts.legend !== false, labels: { color: '#5a6e9e', font: { family: 'Arial', size: 11 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label||''}: ${ctx.parsed.x !== undefined ? ctx.parsed.x : ctx.parsed.y}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { family: 'Arial', size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+        y: { ticks: { color: '#64748b', font: { family: 'Arial', size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } }
+      }
+    }
+  });
+}
+
+function mkLine(id, labels, datasets) {
+  destroyChart(id);
+  const ctx = document.getElementById(id)?.getContext('2d');
+  if (!ctx) return;
+  activeCharts[id] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { labels: { color: '#5a6e9e', font: { family: 'Arial', size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { family: 'Arial', size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+        y: { ticks: { color: '#64748b', font: { family: 'Arial', size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+function freq(arr) {
+  const m = {};
+  arr.forEach(v => { if (v) m[v] = (m[v] || 0) + 1; });
+  return m;
+}
+
+function renderAnalytics() {
+  const ss = students;
+  const t  = ss.length;
+  if (!t) {
+    document.getElementById('analyticsSummaryTable').innerHTML =
+      '<p style="color:var(--text-muted);padding:20px">No students to analyse.</p>';
+    return;
+  }
+
+  // ── shared chart defaults ──
+  const FONT = { family: 'Arial', size: 12 };
+  const gridColor = 'rgba(255,255,255,.05)';
+  const tickColor = '#64748b';
+
+  function colOpts(horizontal) {
+    return {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ' ' + (ctx.parsed.y ?? ctx.parsed.x) } }
+      },
+      scales: {
+        x: { indexAxis: horizontal ? 'y' : 'x',
+             ticks: { color: tickColor, font: FONT }, grid: { color: gridColor } },
+        y: { ticks: { color: tickColor, font: FONT }, grid: { color: gridColor }, beginAtZero: true }
+      }
+    };
+  }
+
+  function pieOpts(showLegend) {
+    return {
+      responsive: false, maintainAspectRatio: false,
+      plugins: {
+        legend: showLegend !== false
+          ? { position: 'bottom', labels: { color: '#5a6e9e', font: { family: 'Arial', size: 12 }, padding: 8, boxWidth: 12 } }
+          : { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const sum = ctx.dataset.data.reduce((a,b)=>a+b,0);
+              return ` ${ctx.label}: ${ctx.parsed} (${sum ? Math.round(ctx.parsed/sum*100) : 0}%)`;
+            }
+          }
+        }
+      }
+    };
+  }
+
+  function mkColChart(id, labels, data, colors) {
+    destroyChart(id);
+    const ctx = document.getElementById(id)?.getContext('2d');
+    if (!ctx) return;
+    activeCharts[id] = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: colors || CHART_COLORS.slice(0,labels.length), borderRadius: 5, borderSkipped: false }] },
+      options: colOpts(false)
+    });
+  }
+
+  function mkHBar(id, labels, data, colors) {
+    destroyChart(id);
+    const ctx = document.getElementById(id)?.getContext('2d');
+    if (!ctx) return;
+    activeCharts[id] = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: colors || CHART_COLORS.slice(0,labels.length), borderRadius: 5, borderSkipped: false }] },
+      options: { ...colOpts(true), indexAxis: 'y',
+        scales: {
+          x: { ticks: { color: tickColor, font: FONT }, grid: { color: gridColor }, beginAtZero: true },
+          y: { ticks: { color: tickColor, font: FONT }, grid: { color: gridColor } }
+        }
+      }
+    });
+  }
+
+  function mkPieChart(id, labels, data, colors) {
+    destroyChart(id);
+    const ctx = document.getElementById(id)?.getContext('2d');
+    if (!ctx) return;
+    activeCharts[id] = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data, backgroundColor: colors || CHART_COLORS.slice(0,labels.length), borderWidth: 2, borderColor: '#131a30' }] },
+      options: pieOpts(true)
+    });
+  }
+
+  // ── 1. Course ──
+  const courseFreq = freq(ss.map(s => s.course));
+  const courseE = Object.entries(courseFreq).sort((a,b) => b[1]-a[1]);
+  const courseL = courseE.map(e=>e[0]), courseD = courseE.map(e=>e[1]);
+  mkColChart('chartCourseCol', courseL, courseD);
+  mkPieChart('chartCoursePie', courseL, courseD);
+
+  // ── 2. State ──
+  const stateFreq = freq(ss.map(s => s.state));
+  const stateE = Object.entries(stateFreq).sort((a,b) => b[1]-a[1]);
+  const stateL = stateE.map(e=>e[0]), stateD = stateE.map(e=>e[1]);
+  mkColChart('chartStateCol', stateL, stateD, ['#3b82f6','#a855f7','#10b981','#f59e0b','#22d3ee','#f472b6','#ef4444','#eab308','#14b8a6']);
+  mkPieChart('chartStatePie', stateL, stateD, ['#3b82f6','#a855f7','#10b981','#f59e0b','#22d3ee','#f472b6','#ef4444','#eab308','#14b8a6']);
+
+  // ── 3. Gender ──
+  const males   = ss.filter(s => s.gender === 'Male').length;
+  const females = ss.filter(s => s.gender === 'Female').length;
+  mkColChart('chartGenderCol', ['Male','Female'], [males, females], ['#3b82f6','#f472b6']);
+  mkPieChart('chartGenderPie', ['Male','Female'], [males, females], ['#3b82f6','#f472b6']);
+
+  // ── 4. Attendance ──
+  const attending = ss.filter(s => s.attending?.toLowerCase() === 'yes').length;
+  const nonAtt    = t - attending;
+  mkColChart('chartAttCol', ['Attending','Non-Attending'], [attending, nonAtt], ['#10b981','#ef4444']);
+  mkPieChart('chartAttPie', ['Attending','Non-Attending'], [attending, nonAtt], ['#10b981','#ef4444']);
+
+  // ── 5. Hostel / Day Scholar ──
+  const attSS     = ss.filter(s => s.attending?.toLowerCase() === 'yes');
+  const daySchol  = attSS.filter(s => s.attendType === 'Day Scholar').length;
+  const boysH     = attSS.filter(s => s.hostelType === 'Boys Hostel').length;
+  const girlsH    = attSS.filter(s => s.hostelType === 'Girls Hostel').length;
+  mkColChart('chartHostelCol', ['Day Scholar','Boys Hostel','Girls Hostel'], [daySchol, boysH, girlsH], ['#22d3ee','#3b82f6','#f472b6']);
+  mkPieChart('chartHostelPie', ['Day Scholar','Boys Hostel','Girls Hostel'], [daySchol, boysH, girlsH], ['#22d3ee','#3b82f6','#f472b6']);
+
+  // ── 6. Scholarship ──
+  const scholars  = ss.filter(s => s.scholarship?.toLowerCase() === 'yes').length;
+  mkColChart('chartScholCol', ['Scholarship','No Scholarship'], [scholars, t-scholars], ['#f59e0b','#64748b']);
+  mkPieChart('chartScholPie', ['Scholarship','No Scholarship'], [scholars, t-scholars], ['#f59e0b','#64748b']);
+
+  // ── 7. Consultant ──
+  const conFreq = freq(ss.map(s => s.consultant).filter(Boolean));
+  const conE    = Object.entries(conFreq).sort((a,b) => b[1]-a[1]).slice(0,12);
+  const conL    = conE.map(e=>e[0]), conD = conE.map(e=>e[1]);
+  mkHBar('chartConCol', conL, conD);
+  mkPieChart('chartConPie', conL, conD);
+
+  // ── 8. Fee ──
+  let totalCollege = 0, totalIncentive = 0;
+  ss.forEach(s => (s.receipts||[]).forEach(r => {
+    const a = parseFloat(r.amount)||0;
+    if (r.payType === 'Incentive') totalIncentive += a; else totalCollege += a;
+  }));
+  const totalFee = totalCollege + totalIncentive;
+  mkColChart('chartFeeCol',
+    ['In College','Incentive Paid'],
+    [totalCollege, totalIncentive],
+    ['#22d3ee','#f59e0b']
+  );
+  mkPieChart('chartFeePie',
+    [`In College ₹${totalCollege.toLocaleString('en-IN')}`, `Incentive ₹${totalIncentive.toLocaleString('en-IN')}`],
+    [totalCollege, totalIncentive],
+    ['#22d3ee','#f59e0b']
+  );
+
+  // ── 9. Timeline (month-wise) ──
+  const monthMap = {};
+  ss.forEach(s => {
+    if (!s.dateAdmission) return;
+    const d = new Date(s.dateAdmission);
+    if (isNaN(d)) return;
+    const key = d.toLocaleString('default', { month: 'short' }) + " '" + String(d.getFullYear()).slice(2);
+    monthMap[key] = (monthMap[key]||0) + 1;
+  });
+  const timeE = Object.entries(monthMap);
+  const timeL  = timeE.map(e=>e[0]), timeD = timeE.map(e=>e[1]);
+  mkColChart('chartTimeCol', timeL, timeD, timeL.map((_,i)=>CHART_COLORS[i%CHART_COLORS.length]));
+  mkPieChart('chartTimePie', timeL, timeD, timeL.map((_,i)=>CHART_COLORS[i%CHART_COLORS.length]));
+
+  // ── Numeric summary table ──
+  const withInc = ss.filter(s => s.incentive && s.incentive !== '0' && s.incentive !== '' && s.incentive !== 'NA').length;
+  const rows = [
+    ['Total Students',                          t,                                             '100%'],
+    ['Attending',                               attending,                                     pct(attending,t)],
+    ['Non-Attending',                           t-attending,                                   pct(t-attending,t)],
+    ['Day Scholars (of attending)',             daySchol,                                      pct(daySchol, attending||1)],
+    ['Boys Hostel (of attending)',              boysH,                                         pct(boysH, attending||1)],
+    ['Girls Hostel (of attending)',             girlsH,                                        pct(girlsH, attending||1)],
+    ['Scholarship Students',                    scholars,                                      pct(scholars,t)],
+    ['Incentive Cases',                         withInc,                                       pct(withInc,t)],
+    ['Male Students',                           males,                                         pct(males,t)],
+    ['Female Students',                         females,                                       pct(females,t)],
+    ['States Covered',                          Object.keys(stateFreq).length,                 '—'],
+    ['Courses Enrolled',                        Object.keys(courseFreq).length,                '—'],
+    ['Total Fee Collected',                     '₹'+totalFee.toLocaleString('en-IN'),          '—'],
+    ['In College Fee',                          '₹'+totalCollege.toLocaleString('en-IN'),      totalFee ? pct(totalCollege,totalFee) : '—'],
+    ['Incentive Paid',                          '₹'+totalIncentive.toLocaleString('en-IN'),    totalFee ? pct(totalIncentive,totalFee) : '—'],
+  ];
+
+  document.getElementById('analyticsSummaryTable').innerHTML = `
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:14px;font-family:Arial,Helvetica,sans-serif">
+      <thead><tr style="background:var(--card2)">
+        <th style="text-align:left;padding:9px 14px;color:var(--text-muted);font-size:12px;font-weight:700;text-transform:uppercase;border-bottom:1px solid var(--border)">Metric</th>
+        <th style="text-align:right;padding:9px 14px;color:var(--text-muted);font-size:12px;font-weight:700;text-transform:uppercase;border-bottom:1px solid var(--border)">Value</th>
+        <th style="text-align:right;padding:9px 14px;color:var(--text-muted);font-size:12px;font-weight:700;text-transform:uppercase;border-bottom:1px solid var(--border)">% Share</th>
+      </tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="background:${i%2===0?'var(--surface)':'transparent'}">
+        <td style="padding:10px 14px;color:var(--text);font-size:13px;border-bottom:1px solid var(--border)">${r[0]}</td>
+        <td style="padding:10px 14px;color:var(--blue);font-weight:700;font-size:15px;text-align:right;border-bottom:1px solid var(--border);font-family:Arial,Helvetica,sans-serif">${r[1]}</td>
+        <td style="padding:10px 14px;color:var(--text-muted);font-size:13px;text-align:right;border-bottom:1px solid var(--border)">${r[2]}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+
+    <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+      ${courseE.map(([k,v])=>`<div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:7px 12px">
+        <span style="font-size:13px;color:var(--text)">${k}</span>
+        <span style="font-weight:700;font-size:14px;color:var(--blue);font-family:Arial,Helvetica,sans-serif">${v} <span style="color:var(--text-muted);font-weight:400;font-size:12px">(${pct(v,t)})</span></span>
+      </div>`).join('')}
+    </div>`;
+}
+
+
+function pct(n, d) { return d ? Math.round(n/d*100)+'%' : '0%'; }
+
+
+// ════════════════════════════════════
+//  AUTOCOMPLETE
+// ════════════════════════════════════
+let acIndex = -1;
+
+function acGetUnique(field){
+  return [...new Set(students.map(s=>s[field]).filter(v=>v&&v.trim()))].sort();
+}
+
+function acShow(inputId, field){
+  const inp = document.getElementById(inputId);
+  const list = document.getElementById('ac_'+inputId);
+  if(!inp||!list) return;
+  const q = inp.value.trim().toLowerCase();
+  const all = acGetUnique(field);
+  const matches = q ? all.filter(v=>v.toLowerCase().includes(q)) : all;
+  if(!matches.length){ list.classList.remove('open'); return; }
+  acIndex = -1;
+  list.innerHTML = matches.map((v,i)=>{
+    const bold = q ? v.replace(new RegExp('('+q+')','gi'),'<strong>$1</strong>') : v;
+    return `<div class="ac-item" onmousedown="acPick('${inputId}','${v.replace(/'/g,"\\'")}')">` + bold + `</div>`;
+  }).join('');
+  list.classList.add('open');
+}
+
+function acPick(inputId, val){
+  const inp = document.getElementById(inputId);
+  if(inp) inp.value = val;
+  acHide(inputId);
+}
+
+function acHide(inputId){
+  setTimeout(()=>{
+    const list = document.getElementById('ac_'+inputId);
+    if(list){ list.classList.remove('open'); acIndex=-1; }
+  }, 150);
+}
+
+function acKey(e, inputId){
+  const list = document.getElementById('ac_'+inputId);
+  if(!list||!list.classList.contains('open')) return;
+  const items = list.querySelectorAll('.ac-item');
+  if(e.key==='ArrowDown'){ e.preventDefault(); acIndex=Math.min(acIndex+1,items.length-1); acHighlight(items); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); acIndex=Math.max(acIndex-1,0); acHighlight(items); }
+  else if(e.key==='Enter'&&acIndex>=0){ e.preventDefault(); items[acIndex].dispatchEvent(new MouseEvent('mousedown')); }
+  else if(e.key==='Escape'){ acHide(inputId); }
+}
+
+function acHighlight(items){
+  items.forEach((el,i)=>el.classList.toggle('active', i===acIndex));
+  if(acIndex>=0) items[acIndex].scrollIntoView({block:'nearest'});
+}
+
+// ════════════════════════════════════
+//  FEATURE 1: QUICK PHONE SEARCH (already works via gSearch)
+//  FEATURE 2: DUPLICATE DETECTION
+// ════════════════════════════════════
+function checkDuplicate(name){
+  const warn = document.getElementById('dupWarn');
+  const msg = document.getElementById('dupWarnMsg');
+  if(!warn||!name||name.length<3) { warn&&warn.classList.remove('show'); return; }
+  const q = name.trim().toLowerCase();
+  const matches = students.filter(s=>s.name&&s.name.toLowerCase().includes(q)&&s.id!==editId);
+  if(matches.length){
+    msg.textContent = 'Similar student already exists: '+matches.map(s=>s.name+' ('+s.course+')').join(', ');
+    warn.classList.add('show');
+  } else {
+    warn.classList.remove('show');
+  }
+}
+
+// ════════════════════════════════════
+//  FEATURE 6: COURSE QUICK FILTERS
+// ════════════════════════════════════
+let activeCourseFilter = '';
+
+function renderCourseFilters(){
+  const el = document.getElementById('courseFilters');
+  if(!el) return;
+  const courses = [...new Set(students.map(s=>s.course).filter(Boolean))].sort();
+  if(!courses.length){ el.innerHTML=''; return; }
+  let html = `<button class="cf-btn all-btn ${!activeCourseFilter?'active':''}" onclick="setCourseFilter('')">All (${students.length})</button>`;
+  courses.forEach(course=>{
+    const count = students.filter(s=>s.course===course).length;
+    const active = activeCourseFilter===course?'active':'';
+    html += `<button class="cf-btn ${active}" onclick="setCourseFilter('${course.replace(/'/g,"\\'")}')">
+      ${course} <span style="opacity:.7">(${count})</span>
+    </button>`;
+  });
+  el.innerHTML = html;
+}
+
+function setCourseFilter(course){
+  activeCourseFilter = course;
+  renderCourseFilters();
+  applyFilters();
+}
+
+// ════════════════════════════════════
+//  FEATURE 8: DARK / LIGHT MODE
+// ════════════════════════════════════
+function toggleTheme(){
+  const isLight = document.body.classList.toggle('light-mode');
+  const btn = document.getElementById('themeToggleBtn');
+  if(btn) btn.innerHTML = isLight ? '☀️ Light' : '🌙 Dark';
+  try{ localStorage.setItem('grd_theme', isLight?'light':'dark'); }catch(e){}
+}
+// Apply saved theme on load - run after DOM ready
+window.addEventListener('DOMContentLoaded', function(){
+  if(localStorage.getItem('grd_theme')==='light'){
+    document.body.classList.add('light-mode');
+    const btn = document.getElementById('themeToggleBtn');
+    if(btn) btn.innerHTML='☀️ Light';
+  }
+});
+
+// ════════════════════════════════════
+//  FEATURE 9: FOLLOW-UP FLAG
+// ════════════════════════════════════
+function toggleFlag(id, e){
+  e.stopPropagation();
+  const idx = students.findIndex(s=>s.id===id);
+  if(idx<0) return;
+  students[idx].followUp = !students[idx].followUp;
+  save();
+  renderBody();
+  toast(students[idx].followUp ? '🚩 Follow-up flagged' : 'Flag removed', 'ok');
+}
+
+// ════════════════════════════════════
+//  PATCH applyFilters for course filter
+// ════════════════════════════════════
+
+
+
+
+// ════════════════════════════════════
+//  AUDIT TRAIL
+// ════════════════════════════════════
+let auditLog = [];
+try{ auditLog = JSON.parse(localStorage.getItem('grd_audit')||'[]'); }catch(e){}
+
+function addAudit(action, studentName, detail){
+  const entry = {
+    action, studentName, detail,
+    time: new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  };
+  auditLog.unshift(entry);
+  auditLog = auditLog.slice(0, 200); // keep last 200
+  try{ localStorage.setItem('grd_audit', JSON.stringify(auditLog)); }catch(e){}
+}
+
+function openAuditModal(){
+  const list = document.getElementById('auditModalList');
+  if(!auditLog.length){
+    list.innerHTML = '<div class="audit-empty">📋 No activity recorded yet</div>';
+  } else {
+    const icons = { Added:'🟢', Edited:'🔵', Deleted:'🔴' };
+    list.innerHTML = auditLog.map(a=>`
+      <div class="audit-item">
+        <div class="audit-icon">${icons[a.action]||'⚪'}</div>
+        <div class="audit-info">
+          <div class="audit-action">${a.action}: ${a.studentName}</div>
+          <div class="audit-detail">${a.detail||''}</div>
+        </div>
+        <div class="audit-time">${a.time}</div>
+      </div>`).join('');
+  }
+  openModal('auditOv');
+}
+
+function clearAudit(){
+  if(!confirm('Clear all audit logs?')) return;
+  auditLog = [];
+  try{ localStorage.removeItem('grd_audit'); }catch(e){}
+  openAuditModal();
+}
+
+
+// ════════════════════════════════════
+//  EXCEL IMPORT
+// ════════════════════════════════════
+let importData = [];
+let importHeaders = [];
+
+function openImport(){
+  document.getElementById('importFile').value='';
+  document.getElementById('importColMap').style.display='none';
+  document.getElementById('importConfirmBtn').style.display='none';
+  document.getElementById('importPreview').innerHTML='';
+  document.getElementById('importMapRows').innerHTML='';
+  openModal('importOv');
+}
+
+function handleImportDrop(e){
+  e.preventDefault();
+  document.getElementById('importZone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if(file) processImportFile(file);
+}
+
+function handleImportFile(input){
+  const file = input.files[0];
+  if(file) processImportFile(file);
+}
+
+function processImportFile(file){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+      if(rows.length < 2){ toast('File appears empty','err'); return; }
+      importHeaders = rows[0].map(h=>String(h||'').trim());
+      importData = rows.slice(1).filter(r=>r.some(v=>v!==undefined&&v!==''));
+
+      // Build column mapping UI
+      const crmFields = [
+        {id:'',label:'— Skip —'},
+        {id:'name',label:'Student Name'},
+        {id:'father',label:"Father's Name"},
+        {id:'gender',label:'Gender'},
+        {id:'course',label:'Course'},
+        {id:'contact',label:'Contact No.'},
+        {id:'consultant',label:'Consultant'},
+        {id:'staff',label:'Staff Referred'},
+        {id:'state',label:'State'},
+        {id:'district',label:'District'},
+        {id:'attending',label:'Attending (Yes/No)'},
+        {id:'attendType',label:'Day Scholar / Hostel'},
+        {id:'scholarship',label:'Scholarship (Yes/No)'},
+        {id:'incentive',label:'Incentive'},
+        {id:'dateAdmission',label:'Date of Admission'},
+        {id:'remarks',label:'Remarks'},
+      ];
+
+      // Auto-match headers
+      const autoMatch = (h)=>{
+        h = h.toLowerCase();
+        if(h.includes('name')&&!h.includes('father')) return 'name';
+        if(h.includes('father')) return 'father';
+        if(h.includes('gender')) return 'gender';
+        if(h.includes('course')) return 'course';
+        if(h.includes('contact')||h.includes('phone')||h.includes('mobile')) return 'contact';
+        if(h.includes('consult')) return 'consultant';
+        if(h.includes('staff')) return 'staff';
+        if(h.includes('state')) return 'state';
+        if(h.includes('district')) return 'district';
+        if(h.includes('attend')&&!h.includes('type')) return 'attending';
+        if(h.includes('type')) return 'attendType';
+        if(h.includes('scholar')) return 'scholarship';
+        if(h.includes('incentive')) return 'incentive';
+        if(h.includes('admission')||h.includes('date')) return 'dateAdmission';
+        if(h.includes('remark')) return 'remarks';
+        return '';
+      };
+
+      document.getElementById('importMapRows').innerHTML = importHeaders.map((h,i)=>`
+        <div class="import-map">
+          <div style="font-weight:600;color:var(--text)">${h}</div>
+          <div style="color:var(--text-muted);font-size:18px">→</div>
+          <select id="imap_${i}">
+            ${crmFields.map(f=>`<option value="${f.id}" ${autoMatch(h)===f.id?'selected':''}>${f.label}</option>`).join('')}
+          </select>
+        </div>`).join('');
+
+      // Preview first 5 rows
+      document.getElementById('importPreview').innerHTML = `
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin:14px 0 8px">Preview (first 5 rows)</div>
+        <table>
+          <thead><tr>${importHeaders.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>${importData.slice(0,5).map(r=>`<tr>${importHeaders.map((_,i)=>`<td>${r[i]||'—'}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px">Total: ${importData.length} students to import</div>`;
+
+      document.getElementById('importColMap').style.display='';
+      document.getElementById('importConfirmBtn').style.display='';
+    }catch(err){
+      toast('Could not read file. Please use .xlsx or .csv','err');
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmImport(){
+  const mapping = {};
+  importHeaders.forEach((_,i)=>{
+    const val = document.getElementById('imap_'+i)?.value;
+    if(val) mapping[i] = val;
+  });
+
+  let added = 0;
+  importData.forEach(row=>{
+    const s = { id:nextId++, sno: students.length+1, receipts:[] };
+    Object.entries(mapping).forEach(([i,field])=>{
+      s[field] = String(row[i]||'').trim();
+    });
+    if(!s.name) return; // skip rows with no name
+    students.push(s);
+    added++;
+  });
+
+  if(added===0){ toast('No valid students found to import','err'); return; }
+  save();
+  closeModal('importOv');
+  renderDash();
+  applyFilters();
+  addAudit('Added', `${added} students`, `Bulk imported from Excel`);
+  toast(`✓ ${added} students imported successfully`,'ok');
+}
+
+function openFeeModal(){ openModal('feeOv'); }
+
+function showSection(sec){
+  const isAn=sec==='analytics';
+  document.getElementById('sectionAnalytics').style.display=isAn?'':'none';
+  document.getElementById('sectionList').style.display=isAn?'none':'';
+  document.getElementById('navAnalyticsBtn').classList.toggle('active',isAn);
+  document.getElementById('navListBtn').classList.toggle('active',!isAn);
+  if(isAn) renderAnalytics();
+}
+
+load();
+filtered=[...students];
+renderDash();
+renderHeader();
+applyFilters();
+</script>
+</body>
+</html>
